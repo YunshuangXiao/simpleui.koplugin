@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: simpleui\n"
 "POT-Creation-Date: 2026-07-08 23:58\n"
-"PO-Revision-Date: 2026-07-13 11:21+0800\n"
+"PO-Revision-Date: 2026-07-23 11:05+0800\n"
 "Last-Translator: \n"
 "Language-Team: Chinese (Simplified)\n"
 "Language: zh_CN\n"
@@ -251,7 +251,7 @@ msgstr "高级选项"
 #: desktop_modules/module_quote.lua:1507
 #: desktop_modules/module_action_list.lua:587
 #: desktop_modules/module_reading_stats.lua:773
-#: desktop_modules/module_clock.lua:851
+#: desktop_modules/module_clock.lua:860
 msgid "Alignment"
 msgstr "对齐方式"
 
@@ -297,17 +297,13 @@ msgstr "外观"
 #: sui_config.lua:853 sui_config.lua:925 sui_menu.lua:1036 sui_menu.lua:1313
 #: sui_menu.lua:2344 sui_menu.lua:2416 sui_menu.lua:2453 sui_menu.lua:2850
 #: sui_menu.lua:3211 sui_menu.lua:4296 sui_style.lua:2109
-#: desktop_modules/module_clock.lua:894 desktop_modules/module_clock.lua:920
+#: desktop_modules/module_clock.lua:903 desktop_modules/module_clock.lua:929
 msgid "Apply"
 msgstr "应用"
 
 #: sui_style.lua:2159
 msgid "Apply Palette…"
 msgstr "应用调色板…"
-
-#: sui_stats_windows.lua:2835 desktop_modules/module_clock.lua:60
-msgid "April"
-msgstr "4月"
 
 #: desktop_modules/module_tbr.lua:570 desktop_modules/module_tbr.lua:643
 #: desktop_modules/module_tbr.lua:666
@@ -363,10 +359,6 @@ msgstr "整理待读列表"
 #: sui_presets.lua:136
 msgid "At a Glance"
 msgstr "概览"
-
-#: sui_stats_windows.lua:2836 desktop_modules/module_clock.lua:61
-msgid "August"
-msgstr "8月"
 
 #: desktop_modules/module_coverdeck.lua:91
 #: desktop_modules/module_currently.lua:247
@@ -446,7 +438,7 @@ msgid "Bar Style"
 msgstr "栏样式"
 
 #: sui_menu.lua:1284 sui_quicksettings_bar.lua:1338
-#: desktop_modules/module_quick_actions.lua:595
+#: desktop_modules/module_quick_actions.lua:661
 msgid "Bare"
 msgstr "极简模式"
 
@@ -458,7 +450,7 @@ msgstr "栏样式"
 msgid "Battery"
 msgstr "电池"
 
-#: desktop_modules/module_clock.lua:905 desktop_modules/module_clock.lua:913
+#: desktop_modules/module_clock.lua:914 desktop_modules/module_clock.lua:922
 msgid "Battery Spacing"
 msgstr "电池间距"
 
@@ -645,7 +637,7 @@ msgstr "日历"
 #: desktop_modules/module_reading_goals.lua:407
 #: desktop_modules/module_reading_goals.lua:424
 #: desktop_modules/module_reading_goals.lua:442
-#: desktop_modules/module_clock.lua:895 desktop_modules/module_clock.lua:921
+#: desktop_modules/module_clock.lua:904 desktop_modules/module_clock.lua:930
 msgid "Cancel"
 msgstr "取消"
 
@@ -663,7 +655,7 @@ msgstr "卡片 — 透明"
 #: desktop_modules/module_action_list.lua:597
 #: desktop_modules/module_reading_stats.lua:68
 #: desktop_modules/module_reading_stats.lua:787
-#: desktop_modules/module_clock.lua:117 desktop_modules/module_clock.lua:863
+#: desktop_modules/module_clock.lua:126 desktop_modules/module_clock.lua:872
 msgid "Center"
 msgstr "居中"
 
@@ -924,7 +916,7 @@ msgstr "深色"
 msgid "Dark Slate"
 msgstr "深石板灰"
 
-#: desktop_modules/module_clock.lua:879 desktop_modules/module_clock.lua:887
+#: desktop_modules/module_clock.lua:888 desktop_modules/module_clock.lua:896
 msgid "Date Spacing"
 msgstr "日期间距"
 
@@ -936,6 +928,10 @@ msgstr "完成日期"
 msgid "Date started"
 msgstr "开始日期"
 
+#: desktop_modules/module_clock.lua:68 desktop_modules/module_clock.lua:71
+msgid "date_format"
+msgstr "%M%D日 %W"
+
 #: sui_stats_windows.lua:950 sui_stats_windows.lua:3675
 msgid "Days"
 msgstr "天"
@@ -944,10 +940,6 @@ msgstr "天"
 #: desktop_modules/module_currently.lua:250
 msgid "Days of reading"
 msgstr "阅读天数"
-
-#: sui_stats_windows.lua:2837 desktop_modules/module_clock.lua:62
-msgid "December"
-msgstr "12月"
 
 #: sui_quickactions.lua:1900 sui_quickactions.lua:2157 sui_titlebar.lua:996
 #: sui_menu.lua:451 sui_menu.lua:580 sui_menu.lua:1260 sui_menu.lua:1786
@@ -1012,7 +1004,7 @@ msgstr "删除快捷操作“%s”？"
 msgid "Dictionary Lookup"
 msgstr "词典查询"
 
-#: desktop_modules/module_clock.lua:831 desktop_modules/module_clock.lua:835
+#: desktop_modules/module_clock.lua:840 desktop_modules/module_clock.lua:844
 msgid "Digital"
 msgstr "数字"
 
@@ -1079,18 +1071,6 @@ msgstr "编辑布局"
 #: sui_quickactions.lua:2083
 msgid "Edit Quick Action"
 msgstr "编辑快捷操作"
-
-#: desktop_modules/module_clock.lua:199 desktop_modules/module_clock.lua:248
-msgid "Eight"
-msgstr "八"
-
-#: desktop_modules/module_clock.lua:209 desktop_modules/module_clock.lua:251
-msgid "Eighteen"
-msgstr "十八"
-
-#: desktop_modules/module_clock.lua:202 desktop_modules/module_clock.lua:249
-msgid "Eleven"
-msgstr "十一"
 
 #: sui_menu.lua:887
 msgid "Empty"
@@ -1244,21 +1224,9 @@ msgstr "收藏"
 msgid "Favorites not available."
 msgstr "收藏不可用。"
 
-#: sui_stats_windows.lua:2835 desktop_modules/module_clock.lua:60
-msgid "February"
-msgstr "2月"
-
 #: sui_quickactions.lua:385
 msgid "Fetching bookmarks…"
 msgstr "正在获取书签…"
-
-#: desktop_modules/module_clock.lua:206 desktop_modules/module_clock.lua:250
-msgid "Fifteen"
-msgstr "十五"
-
-#: desktop_modules/module_clock.lua:218 desktop_modules/module_clock.lua:256
-msgid "Fifty"
-msgstr "五十"
 
 #: sui_quickactions.lua:717
 msgid "File Manager not available."
@@ -1275,10 +1243,6 @@ msgstr "文件未找到："
 #: sui_menu.lua:3181
 msgid "Finished Books"
 msgstr "已读完书籍"
-
-#: desktop_modules/module_clock.lua:196 desktop_modules/module_clock.lua:247
-msgid "Five"
-msgstr "五"
 
 #: desktop_modules/module_quote.lua:1532
 msgid "Fixed Height"
@@ -1326,18 +1290,6 @@ msgstr "文件夹封面"
 msgid "Font weight"
 msgstr "字体粗细"
 
-#: desktop_modules/module_clock.lua:217 desktop_modules/module_clock.lua:256
-msgid "Forty"
-msgstr "四十"
-
-#: desktop_modules/module_clock.lua:195 desktop_modules/module_clock.lua:247
-msgid "Four"
-msgstr "四"
-
-#: desktop_modules/module_clock.lua:205 desktop_modules/module_clock.lua:250
-msgid "Fourteen"
-msgstr "十四"
-
 #: desktop_modules/module_collections.lua:911
 #: desktop_modules/module_recent.lua:543 desktop_modules/module_tbr.lua:757
 #: desktop_modules/module_reading_goals.lua:1071
@@ -1362,14 +1314,6 @@ msgid ""
 msgstr ""
 "冻结只能补一天，且必须是紧接着的有效阅读日。符合条件时，点击昨天的格子即可使"
 "用。"
-
-#: sui_stats_windows.lua:2825
-msgid "Fri"
-msgstr "星期五"
-
-#: desktop_modules/module_clock.lua:57
-msgid "Friday"
-msgstr "星期五"
 
 #: sui_quicksettings_bar.lua:396 sui_quicksettings_bar.lua:418
 msgid "Frontlight"
@@ -1672,18 +1616,6 @@ msgstr "夜间模式下反转颜色"
 msgid "Items"
 msgstr "项目"
 
-#: sui_stats_windows.lua:2835 desktop_modules/module_clock.lua:60
-msgid "January"
-msgstr "1月"
-
-#: sui_stats_windows.lua:2836 desktop_modules/module_clock.lua:61
-msgid "July"
-msgstr "7月"
-
-#: sui_stats_windows.lua:2836 desktop_modules/module_clock.lua:61
-msgid "June"
-msgstr "6月"
-
 #: sui_menu.lua:509
 msgid "KOReader"
 msgstr "KOReader"
@@ -1737,7 +1669,7 @@ msgstr "布局、壁纸与行为"
 #: desktop_modules/module_action_list.lua:591
 #: desktop_modules/module_reading_stats.lua:66
 #: desktop_modules/module_reading_stats.lua:777
-#: desktop_modules/module_clock.lua:115 desktop_modules/module_clock.lua:856
+#: desktop_modules/module_clock.lua:124 desktop_modules/module_clock.lua:865
 msgid "Left"
 msgstr "左侧"
 
@@ -1801,8 +1733,8 @@ msgid ""
 "— while reading and while browsing files — instead of KOReader's native Home "
 "behaviour."
 msgstr ""
-"使设备的实体主页键始终打开 SimpleUI 主屏幕——无论是在阅读还是浏览文件时——而"
-"非 KOReader 原生的主页行为。"
+"将设备的物理 Home 键设置为始终打开 SimpleUI 主屏幕 — 无论在阅读书籍还是浏览文"
+"件时 — 替代 KOReader 自身的 Home 键行为。"
 
 #: sui_menu.lua:3999 sui_menu.lua:4073 sui_menu.lua:4078 sui_presets.lua:875
 #: sui_presets.lua:951 sui_presets.lua:956
@@ -1817,10 +1749,6 @@ msgstr "手动导入的书籍"
 msgid "Manually Tracked Books  (%s)"
 msgstr "手动导入的书籍（%s）"
 
-#: sui_stats_windows.lua:2835 desktop_modules/module_clock.lua:60
-msgid "March"
-msgstr "3月"
-
 #: sui_quicksettings_bar.lua:443 sui_quicksettings_bar.lua:549
 msgid "Max"
 msgstr "最大值"
@@ -1834,10 +1762,6 @@ msgstr "最多 5 个收藏夹。请先删除一个。"
 msgid "Maximum slots reached."
 msgstr "已达最大槽位数量。"
 
-#: sui_stats_windows.lua:2836 desktop_modules/module_clock.lua:61
-msgid "May"
-msgstr "5月"
-
 #: sui_titlebar.lua:102 sui_titlebar.lua:107
 msgid "Menu"
 msgstr "菜单"
@@ -1846,7 +1770,7 @@ msgstr "菜单"
 msgid "Menu Button"
 msgstr "菜单按钮"
 
-#: desktop_modules/module_clock.lua:222 desktop_modules/module_clock.lua:304
+#: desktop_modules/module_clock.lua:231 desktop_modules/module_clock.lua:313
 msgid "Midnight"
 msgstr "午夜蓝"
 
@@ -1901,14 +1825,6 @@ msgstr ""
 #: sui_presets.lua:206
 msgid "Momentum"
 msgstr "动量"
-
-#: sui_stats_windows.lua:2825
-msgid "Mon"
-msgstr "星期一"
-
-#: desktop_modules/module_clock.lua:56
-msgid "Monday"
-msgstr "星期一"
 
 #: desktop_modules/module_reading_goals.lua:855
 #: desktop_modules/module_reading_goals.lua:902
@@ -2045,14 +1961,6 @@ msgstr "下一页"
 #: sui_quickactions.lua:792 sui_config.lua:127
 msgid "Night Mode"
 msgstr "夜间模式"
-
-#: desktop_modules/module_clock.lua:200 desktop_modules/module_clock.lua:248
-msgid "Nine"
-msgstr "九"
-
-#: desktop_modules/module_clock.lua:210 desktop_modules/module_clock.lua:252
-msgid "Nineteen"
-msgstr "十九"
 
 #: sui_stats_windows.lua:1222
 msgid "No"
@@ -2293,7 +2201,7 @@ msgstr "未找到壁纸。"
 msgid "None"
 msgstr "无"
 
-#: desktop_modules/module_clock.lua:223 desktop_modules/module_clock.lua:307
+#: desktop_modules/module_clock.lua:232 desktop_modules/module_clock.lua:316
 msgid "Noon"
 msgstr "中午"
 
@@ -2307,10 +2215,6 @@ msgstr "未设置"
 msgid "Notes"
 msgstr "笔记"
 
-#: sui_stats_windows.lua:2837 desktop_modules/module_clock.lua:62
-msgid "November"
-msgstr "11月"
-
 #: sui_menu.lua:2863
 msgid "Number of Books in Folder"
 msgstr "文件夹中的书籍数量"
@@ -2319,7 +2223,7 @@ msgstr "文件夹中的书籍数量"
 msgid "Number of Pages"
 msgstr "页数"
 
-#: desktop_modules/module_clock.lua:226 desktop_modules/module_clock.lua:325
+#: desktop_modules/module_clock.lua:235 desktop_modules/module_clock.lua:334
 msgid "O'Clock"
 msgstr "点钟"
 
@@ -2327,16 +2231,12 @@ msgstr "点钟"
 msgid "OK"
 msgstr "确定"
 
-#: sui_stats_windows.lua:2837 desktop_modules/module_clock.lua:62
-msgid "October"
-msgstr "10月"
-
 #: sui_quickactions.lua:1544 sui_quickactions.lua:2536 sui_menu.lua:1401
 #: sui_menu.lua:1606 sui_menu.lua:3183 sui_menu.lua:3348 sui_menu.lua:4488
 msgid "Off"
 msgstr "关闭"
 
-#: desktop_modules/module_clock.lua:227 desktop_modules/module_clock.lua:270
+#: desktop_modules/module_clock.lua:236 desktop_modules/module_clock.lua:279
 msgid "Oh"
 msgstr "Oh"
 
@@ -2344,10 +2244,6 @@ msgstr "Oh"
 #: sui_menu.lua:1606 sui_menu.lua:4488
 msgid "On"
 msgstr "开启"
-
-#: desktop_modules/module_clock.lua:192 desktop_modules/module_clock.lua:246
-msgid "One"
-msgstr "一"
 
 #: sui_quickactions.lua:3080 sui_homescreen.lua:738 sui_stats_windows.lua:770
 #: desktop_modules/module_quote.lua:1253
@@ -2571,7 +2467,7 @@ msgstr "插件不可用：%s"
 
 #: sui_menu.lua:2655
 msgid "PocketBook Home Button Opens Home Screen"
-msgstr "PocketBook 主页键打开主屏幕"
+msgstr "PocketBook Home 键打开主屏幕"
 
 #: sui_menu.lua:2870 sui_menu.lua:3274
 msgid "Position"
@@ -2858,25 +2754,17 @@ msgstr "丝带"
 #: desktop_modules/module_action_list.lua:603
 #: desktop_modules/module_reading_stats.lua:67
 #: desktop_modules/module_reading_stats.lua:797
-#: desktop_modules/module_clock.lua:116 desktop_modules/module_clock.lua:870
+#: desktop_modules/module_clock.lua:125 desktop_modules/module_clock.lua:879
 msgid "Right"
 msgstr "右侧"
 
-#: sui_quicksettings_bar.lua:1318 desktop_modules/module_quick_actions.lua:575
+#: sui_quicksettings_bar.lua:1318 desktop_modules/module_quick_actions.lua:641
 msgid "Round"
 msgstr "圆形"
 
-#: sui_quicksettings_bar.lua:1328 desktop_modules/module_quick_actions.lua:585
+#: sui_quicksettings_bar.lua:1328 desktop_modules/module_quick_actions.lua:651
 msgid "Rounded Square"
 msgstr "圆角方形"
-
-#: sui_stats_windows.lua:2825
-msgid "Sat"
-msgstr "星期六"
-
-#: desktop_modules/module_clock.lua:57
-msgid "Saturday"
-msgstr "星期六"
 
 #: sui_quickactions.lua:2219 sui_menu.lua:3953 sui_stats_windows.lua:658
 #: sui_presets.lua:823 desktop_modules/module_reading_goals.lua:391
@@ -2910,7 +2798,7 @@ msgstr "保存预设"
 #: desktop_modules/module_reading_stats.lua:574
 #: desktop_modules/module_reading_goals.lua:814
 #: desktop_modules/module_reading_goals.lua:816
-#: desktop_modules/module_clock.lua:787 desktop_modules/module_clock.lua:789
+#: desktop_modules/module_clock.lua:796 desktop_modules/module_clock.lua:798
 #: desktop_modules/module_coverdeck.lua:1088
 #: desktop_modules/module_coverdeck.lua:1090
 #: desktop_modules/module_new_books.lua:325
@@ -3026,7 +2914,7 @@ msgstr "此模块的缩放比例。"
 #: desktop_modules/module_recent.lua:504 desktop_modules/module_tbr.lua:536
 #: desktop_modules/module_reading_stats.lua:575
 #: desktop_modules/module_reading_goals.lua:817
-#: desktop_modules/module_clock.lua:790
+#: desktop_modules/module_clock.lua:799
 #: desktop_modules/module_new_books.lua:328
 #: desktop_modules/module_currently.lua:1000
 #: desktop_modules/module_quick_actions.lua:548
@@ -3102,10 +2990,6 @@ msgstr "分隔线"
 msgid "Sepia Classic"
 msgstr "经典棕褐色"
 
-#: sui_stats_windows.lua:2837 desktop_modules/module_clock.lua:62
-msgid "September"
-msgstr "9月"
-
 #: sui_quickactions.lua:863 sui_config.lua:133 sui_browsemeta.lua:78
 msgid "Series"
 msgstr "系列"
@@ -3145,23 +3029,15 @@ msgstr "未找到设置。"
 msgid "Settings on Long Tap"
 msgstr "长按打开设置"
 
-#: desktop_modules/module_clock.lua:198 desktop_modules/module_clock.lua:248
-msgid "Seven"
-msgstr "七"
-
-#: desktop_modules/module_clock.lua:208 desktop_modules/module_clock.lua:251
-msgid "Seventeen"
-msgstr "十七"
-
-#: desktop_modules/module_clock.lua:821
+#: desktop_modules/module_clock.lua:830
 msgid "Show Battery"
 msgstr "显示电池"
 
-#: desktop_modules/module_clock.lua:809
+#: desktop_modules/module_clock.lua:818
 msgid "Show Clock"
 msgstr "显示时钟"
 
-#: desktop_modules/module_clock.lua:815
+#: desktop_modules/module_clock.lua:824
 msgid "Show Date"
 msgstr "显示日期"
 
@@ -3308,14 +3184,6 @@ msgstr "Simple UI：切换主屏幕/书库"
 #: sui_menu.lua:2791
 msgid "Single Cover"
 msgstr "单封面"
-
-#: desktop_modules/module_clock.lua:197 desktop_modules/module_clock.lua:247
-msgid "Six"
-msgstr "六"
-
-#: desktop_modules/module_clock.lua:207 desktop_modules/module_clock.lua:251
-msgid "Sixteen"
-msgstr "十六"
 
 #: sui_menu.lua:1022 sui_menu.lua:2835 sui_quicksettings_bar.lua:1295
 #: sui_quicksettings_bar.lua:1296 sui_window.lua:2101 sui_window.lua:2108
@@ -3500,14 +3368,6 @@ msgstr "样式"
 msgid "Sub-page Buttons"
 msgstr "子页面按钮"
 
-#: sui_stats_windows.lua:2825
-msgid "Sun"
-msgstr "星期日"
-
-#: desktop_modules/module_clock.lua:56
-msgid "Sunday"
-msgstr "星期日"
-
 #: sui_menu.lua:1059
 msgid "Swipe Indicator"
 msgstr "滑动指示器"
@@ -3605,10 +3465,6 @@ msgstr "标签（%d/%d — 已达限制）"
 msgid "Tags"
 msgstr "标签"
 
-#: desktop_modules/module_clock.lua:201 desktop_modules/module_clock.lua:249
-msgid "Ten"
-msgstr "十"
-
 #: sui_menu.lua:201
 msgid "Text"
 msgstr "文字"
@@ -3632,14 +3488,41 @@ msgstr "文字大小"
 msgid "Text Size — %d%%"
 msgstr "文字大小 — %d%%"
 
-#: sui_menu.lua:203
+#: sui_menu.lua:203 desktop_modules/module_quick_actions.lua:671
 msgid "Text only"
 msgstr "仅文字"
 
 #: desktop_modules/module_coverdeck.lua:1105
 #: desktop_modules/module_coverdeck.lua:1106
+#: desktop_modules/module_quick_actions.lua:710
+#: desktop_modules/module_quick_actions.lua:717
 msgid "Text size"
 msgstr "文字大小"
+
+#: desktop_modules/module_quick_actions.lua:718
+msgid ""
+"Control the text size in the Quick Actions Row.\n"
+"\n"
+"100% = default text size."
+msgstr ""
+"控制快速操作行中文字体大小。\n"
+"\n"
+"100% = 默认大小。"
+
+#: desktop_modules/module_quick_actions.lua:684
+#: desktop_modules/module_quick_actions.lua:691
+msgid "Text spacing"
+msgstr "文字间距"
+
+#: desktop_modules/module_quick_actions.lua:672
+msgid ""
+"Control the spacing between text items in the Quick Actions Row.\n"
+"\n"
+"0% = no spacing, 100% = default spacing."
+msgstr ""
+"控制快速操作行中文字项之间的间距。\n"
+"\n"
+"0% = 无间距, 100% = 默认间距。"
 
 #: sui_quicksettings_bar.lua:1183
 msgid ""
@@ -3673,14 +3556,6 @@ msgstr "「待读」收藏夹无法重命名。"
 #: sui_menu.lua:4356
 msgid "Theme Colors"
 msgstr "主题颜色"
-
-#: desktop_modules/module_clock.lua:204 desktop_modules/module_clock.lua:250
-msgid "Thirteen"
-msgstr "十三"
-
-#: desktop_modules/module_clock.lua:216 desktop_modules/module_clock.lua:255
-msgid "Thirty"
-msgstr "三十"
 
 #: sui_quickactions.lua:2921 sui_quickactions.lua:3007
 msgid ""
@@ -3717,18 +3592,6 @@ msgid ""
 msgstr ""
 "这将删除所有 Simple UI 设置并重启 KOReader。\n"
 "确定要继续吗？"
-
-#: desktop_modules/module_clock.lua:194 desktop_modules/module_clock.lua:246
-msgid "Three"
-msgstr "三"
-
-#: sui_stats_windows.lua:2825
-msgid "Thu"
-msgstr "星期四"
-
-#: desktop_modules/module_clock.lua:57
-msgid "Thursday"
-msgstr "星期四"
 
 #: desktop_modules/module_coverdeck.lua:80
 #: desktop_modules/module_currently.lua:251
@@ -3873,26 +3736,6 @@ msgstr "透明导航栏"
 msgid "Transparent status bar"
 msgstr "透明状态栏"
 
-#: sui_stats_windows.lua:2825
-msgid "Tue"
-msgstr "星期二"
-
-#: desktop_modules/module_clock.lua:56
-msgid "Tuesday"
-msgstr "星期二"
-
-#: desktop_modules/module_clock.lua:203 desktop_modules/module_clock.lua:249
-msgid "Twelve"
-msgstr "十二"
-
-#: desktop_modules/module_clock.lua:215 desktop_modules/module_clock.lua:255
-msgid "Twenty"
-msgstr "二十"
-
-#: desktop_modules/module_clock.lua:193 desktop_modules/module_clock.lua:246
-msgid "Two"
-msgstr "二"
-
 #: sui_menu.lua:3054 sui_menu.lua:3121
 msgid "Type"
 msgstr "类型"
@@ -3989,7 +3832,7 @@ msgstr ""
 "此模块上方的垂直间距。\n"
 "默认间距为100%。"
 
-#: desktop_modules/module_clock.lua:888
+#: desktop_modules/module_clock.lua:897
 msgid ""
 "Vertical space between the clock and the date.\n"
 "100% is the default spacing."
@@ -3997,7 +3840,7 @@ msgstr ""
 "时钟和日期之间的垂直间距。\n"
 "默认间距为100%。"
 
-#: desktop_modules/module_clock.lua:914
+#: desktop_modules/module_clock.lua:923
 msgid ""
 "Vertical space between the date (or clock) and the battery.\n"
 "100% is the default spacing."
@@ -4018,9 +3861,9 @@ msgstr "可见"
 msgid "WEEK STREAK"
 msgstr "连续周数"
 
-#: desktop_modules/module_clock.lua:234 desktop_modules/module_clock.lua:259
+#: desktop_modules/module_clock.lua:243 desktop_modules/module_clock.lua:268
 msgid "WORD_CLOCK_TENS_SEP"
-msgstr "零"
+msgstr "单词时钟十位分隔符"
 
 #: sui_menu.lua:2657 sui_settings_window.lua:318 sui_settings_window.lua:862
 msgid "Wallpaper"
@@ -4042,14 +3885,6 @@ msgstr "色温滑块"
 #: sui_menu.lua:2608
 msgid "Warn when modules on a page exceed the available screen height."
 msgstr "当页面上的模块超出屏幕高度时发出警告。"
-
-#: sui_stats_windows.lua:2825
-msgid "Wed"
-msgstr "星期三"
-
-#: desktop_modules/module_clock.lua:56
-msgid "Wednesday"
-msgstr "星期三"
 
 #: sui_onboarding.lua:233 sui_onboarding.lua:234
 msgid "Welcome to Simple UI"
@@ -4140,7 +3975,7 @@ msgstr "维基百科查询"
 msgid "With percentage"
 msgstr "带百分比"
 
-#: desktop_modules/module_clock.lua:831 desktop_modules/module_clock.lua:842
+#: desktop_modules/module_clock.lua:840 desktop_modules/module_clock.lua:851
 msgid "Word"
 msgstr "单词"
 
@@ -4172,22 +4007,6 @@ msgstr ""
 msgid "Your highlights"
 msgstr "您的高亮标注"
 
-#: sui_stats_windows.lua:417
-msgid "apr"
-msgstr "4月"
-
-#: sui_stats_windows.lua:1433
-msgid "april"
-msgstr "4月"
-
-#: sui_stats_windows.lua:418
-msgid "aug"
-msgstr "8月"
-
-#: sui_stats_windows.lua:1434
-msgid "august"
-msgstr "8月"
-
 #: sui_stats_windows.lua:2306 desktop_modules/module_reading_stats.lua:93
 msgid "books finished"
 msgstr "已读完书籍"
@@ -4203,14 +4022,6 @@ msgstr "天连续阅读"
 #: desktop_modules/module_reading_stats.lua:95
 msgid "days streak"
 msgstr "天连续阅读"
-
-#: sui_stats_windows.lua:418
-msgid "dec"
-msgstr "12月"
-
-#: sui_stats_windows.lua:1434
-msgid "december"
-msgstr "12月"
 
 #: sui_quickactions.lua:1617 sui_quickactions.lua:2575
 msgid "default"
@@ -4230,14 +4041,6 @@ msgstr "例如：#F5F0E8 或 #1C1C1E（留空表示重置）"
 msgid "enabled"
 msgstr "已启用"
 
-#: sui_stats_windows.lua:417
-msgid "feb"
-msgstr "2月"
-
-#: sui_stats_windows.lua:1433
-msgid "february"
-msgstr "2月"
-
 #: sui_style.lua:2344
 msgid "ffi/archiver not available in this KOReader version"
 msgstr "此 KOReader 版本不支持 ffi/archiver 模块"
@@ -4250,45 +4053,9 @@ msgstr "十六进制代码，例如 E001"
 msgid "hours read"
 msgstr "已读小时数"
 
-#: sui_stats_windows.lua:417
-msgid "jan"
-msgstr "1月"
-
-#: sui_stats_windows.lua:1433
-msgid "january"
-msgstr "1月"
-
-#: sui_stats_windows.lua:418
-msgid "jul"
-msgstr "7月"
-
-#: sui_stats_windows.lua:1434
-msgid "july"
-msgstr "7月"
-
-#: sui_stats_windows.lua:417
-msgid "jun"
-msgstr "6月"
-
-#: sui_stats_windows.lua:1433
-msgid "june"
-msgstr "6月"
-
 #: sui_updater.lua:663
 msgid "latest"
 msgstr "最新版"
-
-#: sui_stats_windows.lua:417
-msgid "mar"
-msgstr "3月"
-
-#: sui_stats_windows.lua:1433
-msgid "march"
-msgstr "3月"
-
-#: sui_stats_windows.lua:417
-msgid "may"
-msgstr "5月"
 
 #: desktop_modules/module_reading_stats.lua:95
 msgid "no streak"
@@ -4298,22 +4065,6 @@ msgstr "无连续阅读"
 #: sui_quickactions.lua:2691
 msgid "not configured"
 msgstr "未配置"
-
-#: sui_stats_windows.lua:418
-msgid "nov"
-msgstr "11月"
-
-#: sui_stats_windows.lua:1434
-msgid "november"
-msgstr "11月"
-
-#: sui_stats_windows.lua:418
-msgid "oct"
-msgstr "10月"
-
-#: sui_stats_windows.lua:1434
-msgid "october"
-msgstr "10月"
 
 #: desktop_modules/module_reading_stats.lua:90
 msgid "of reading this month"
@@ -4358,14 +4109,6 @@ msgstr "页/天（7天）"
 #: sui_stats_windows.lua:2625
 msgid "reading time"
 msgstr "阅读时长"
-
-#: sui_stats_windows.lua:418
-msgid "sep"
-msgstr "9月"
-
-#: sui_stats_windows.lua:1434
-msgid "september"
-msgstr "9月"
 
 #: sui_updater.lua:665
 msgid "⬆ Update available: %s"
@@ -4534,3 +4277,316 @@ msgid "page read"
 msgid_plural "pages read"
 msgstr[0] "已读页数"
 msgstr[1] "已读页数"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "jan"
+msgstr "1月"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "feb"
+msgstr "2月"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "mar"
+msgstr "3月"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "apr"
+msgstr "4月"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "may"
+msgstr "5月"
+
+#: sui_stats_windows.lua:417 sui_stats_windows.lua:1429
+msgid "jun"
+msgstr "6月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "jul"
+msgstr "7月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "aug"
+msgstr "8月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "sep"
+msgstr "9月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "oct"
+msgstr "10月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "nov"
+msgstr "11月"
+
+#: sui_stats_windows.lua:418 sui_stats_windows.lua:1430
+msgid "dec"
+msgstr "12月"
+
+
+#: desktop_modules/module_clock.lua:60
+msgid "Jan"
+msgstr "1月"
+
+#: desktop_modules/module_clock.lua:60
+msgid "Feb"
+msgstr "2月"
+
+#: desktop_modules/module_clock.lua:60
+msgid "Mar"
+msgstr "3月"
+
+#: desktop_modules/module_clock.lua:60
+msgid "Apr"
+msgstr "4月"
+
+#: desktop_modules/module_clock.lua:61
+msgid "May"
+msgstr "5月"
+
+#: desktop_modules/module_clock.lua:61
+msgid "Jun"
+msgstr "6月"
+
+#: desktop_modules/module_clock.lua:61
+msgid "Jul"
+msgstr "7月"
+
+#: desktop_modules/module_clock.lua:61
+msgid "Aug"
+msgstr "8月"
+
+#: desktop_modules/module_clock.lua:62
+msgid "Sep"
+msgstr "9月"
+
+#: desktop_modules/module_clock.lua:62
+msgid "Oct"
+msgstr "10月"
+
+#: desktop_modules/module_clock.lua:62
+msgid "Nov"
+msgstr "11月"
+
+#: desktop_modules/module_clock.lua:62
+msgid "Dec"
+msgstr "12月"
+
+#: sui_stats_windows.lua:1433
+msgid "january"
+msgstr "1月"
+
+#: sui_stats_windows.lua:1433
+msgid "february"
+msgstr "2月"
+
+#: sui_stats_windows.lua:1433
+msgid "march"
+msgstr "3月"
+
+#: sui_stats_windows.lua:1433
+msgid "april"
+msgstr "4月"
+
+#: sui_stats_windows.lua:1433
+msgid "may"
+msgstr "5月"
+
+#: sui_stats_windows.lua:1433
+msgid "june"
+msgstr "6月"
+
+#: sui_stats_windows.lua:1434
+msgid "july"
+msgstr "7月"
+
+#: sui_stats_windows.lua:1434
+msgid "august"
+msgstr "8月"
+
+#: sui_stats_windows.lua:1434
+msgid "september"
+msgstr "9月"
+
+#: sui_stats_windows.lua:1434
+msgid "october"
+msgstr "10月"
+
+#: sui_stats_windows.lua:1434
+msgid "november"
+msgstr "11月"
+
+#: sui_stats_windows.lua:1434
+msgid "december"
+msgstr "12月"
+
+#: sui_stats_windows.lua:2835
+msgid "January"
+msgstr "1月"
+
+#: sui_stats_windows.lua:2835
+msgid "February"
+msgstr "2月"
+
+#: sui_stats_windows.lua:2835
+msgid "March"
+msgstr "3月"
+
+#: sui_stats_windows.lua:2835
+msgid "April"
+msgstr "4月"
+
+#: sui_stats_windows.lua:2836
+msgid "May"
+msgstr "5月"
+
+#: sui_stats_windows.lua:2836
+msgid "June"
+msgstr "6月"
+
+#: sui_stats_windows.lua:2836
+msgid "July"
+msgstr "7月"
+
+#: sui_stats_windows.lua:2836
+msgid "August"
+msgstr "8月"
+
+#: sui_stats_windows.lua:2837
+msgid "September"
+msgstr "9月"
+
+#: sui_stats_windows.lua:2837
+msgid "October"
+msgstr "10月"
+
+#: sui_stats_windows.lua:2837
+msgid "November"
+msgstr "11月"
+
+#: sui_stats_windows.lua:2837
+msgid "December"
+msgstr "12月"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:56
+msgid "Mon"
+msgstr "周一"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:56
+msgid "Tue"
+msgstr "周二"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:56
+msgid "Wed"
+msgstr "周三"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:56
+msgid "Thu"
+msgstr "周四"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:57
+msgid "Fri"
+msgstr "周五"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:57
+msgid "Sat"
+msgstr "周六"
+
+#: sui_stats_windows.lua:2825 desktop_modules/module_clock.lua:57
+msgid "Sun"
+msgstr "周日"
+
+#: desktop_modules/module_clock.lua:201 desktop_modules/module_clock.lua:255
+msgid "One"
+msgstr "一"
+
+#: desktop_modules/module_clock.lua:202 desktop_modules/module_clock.lua:255
+msgid "Two"
+msgstr "二"
+
+#: desktop_modules/module_clock.lua:203 desktop_modules/module_clock.lua:255
+msgid "Three"
+msgstr "三"
+
+#: desktop_modules/module_clock.lua:204 desktop_modules/module_clock.lua:256
+msgid "Four"
+msgstr "四"
+
+#: desktop_modules/module_clock.lua:205 desktop_modules/module_clock.lua:256
+msgid "Five"
+msgstr "五"
+
+#: desktop_modules/module_clock.lua:206 desktop_modules/module_clock.lua:256
+msgid "Six"
+msgstr "六"
+
+#: desktop_modules/module_clock.lua:207 desktop_modules/module_clock.lua:257
+msgid "Seven"
+msgstr "七"
+
+#: desktop_modules/module_clock.lua:208 desktop_modules/module_clock.lua:257
+msgid "Eight"
+msgstr "八"
+
+#: desktop_modules/module_clock.lua:209 desktop_modules/module_clock.lua:257
+msgid "Nine"
+msgstr "九"
+
+#: desktop_modules/module_clock.lua:210 desktop_modules/module_clock.lua:258
+msgid "Ten"
+msgstr "十"
+
+#: desktop_modules/module_clock.lua:211 desktop_modules/module_clock.lua:258
+msgid "Eleven"
+msgstr "十一"
+
+#: desktop_modules/module_clock.lua:212 desktop_modules/module_clock.lua:258
+msgid "Twelve"
+msgstr "十二"
+
+#: desktop_modules/module_clock.lua:213 desktop_modules/module_clock.lua:259
+msgid "Thirteen"
+msgstr "十三"
+
+#: desktop_modules/module_clock.lua:214 desktop_modules/module_clock.lua:259
+msgid "Fourteen"
+msgstr "十四"
+
+#: desktop_modules/module_clock.lua:215 desktop_modules/module_clock.lua:259
+msgid "Fifteen"
+msgstr "十五"
+
+#: desktop_modules/module_clock.lua:216 desktop_modules/module_clock.lua:260
+msgid "Sixteen"
+msgstr "十六"
+
+#: desktop_modules/module_clock.lua:217 desktop_modules/module_clock.lua:260
+msgid "Seventeen"
+msgstr "十七"
+
+#: desktop_modules/module_clock.lua:218 desktop_modules/module_clock.lua:260
+msgid "Eighteen"
+msgstr "十八"
+
+#: desktop_modules/module_clock.lua:219 desktop_modules/module_clock.lua:261
+msgid "Nineteen"
+msgstr "十九"
+
+#: desktop_modules/module_clock.lua:224 desktop_modules/module_clock.lua:264
+msgid "Twenty"
+msgstr "二十"
+
+#: desktop_modules/module_clock.lua:225 desktop_modules/module_clock.lua:264
+msgid "Thirty"
+msgstr "三十"
+
+#: desktop_modules/module_clock.lua:226 desktop_modules/module_clock.lua:265
+msgid "Forty"
+msgstr "四十"
+
+#: desktop_modules/module_clock.lua:227 desktop_modules/module_clock.lua:265
+msgid "Fifty"
+msgstr "五十"

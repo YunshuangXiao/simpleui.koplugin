@@ -80,7 +80,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Core widget builder (shared by all slots)
 -- ---------------------------------------------------------------------------
-local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg, colors)
+local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg, colors, text_gap_px)
     local clr_blk = colors and colors.blk or Blitbuffer.COLOR_BLACK
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
     local ph_fs = math.max(8, math.floor(_BASE_PH_FS * (d.frame_sz / (_BASE_ICON_SZ + _BASE_FRAME_PAD * 2))))
@@ -116,8 +116,8 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
     local inner_w  = w - PAD * 2
     local lbl_h    = show_labels and d.lbl_h or 0
     local lbl_sp   = show_labels and d.lbl_sp or 0
-    local gap      = n <= 1 and 0 or math.floor((inner_w - n * d.frame_sz) / (n - 1))
     local left_off = n == 1 and math.floor((inner_w - d.frame_sz) / 2) or 0
+    local is_text_only = (shape == "text_only")
 
     local row = HorizontalGroup:new{ align = "top" }
 
@@ -125,28 +125,73 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
         local aid   = valid_ids[i]
         local entry = getEntry(aid)
 
-        local icon_sz_used = d.icon_sz
-
-        local icon_widget
-        local nerd_char = Config.nerdIconChar(entry.icon)
-        if nerd_char then
-            icon_widget = CenterContainer:new{
-                dimen = Geom:new{ w = icon_sz_used, h = icon_sz_used },
-                TextWidget:new{
-                    text    = nerd_char,
-                    face    = Font:getFace(SUIStyle.FACE_ICONS, math.floor(icon_sz_used * 0.6)),
-                    fgcolor = clr_blk,
-                    padding = 0,
+        if is_text_only then
+            local text_widget = TextWidget:new{
+                text    = entry.label,
+                face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
+                fgcolor = clr_blk,
+                truncate_with_ellipsis = true,
+            }
+            local tw_size = text_widget:getSize()
+            local tappable = InputContainer:new{
+                dimen      = Geom:new{ w = tw_size.w, h = tw_size.h },
+                [1]        = text_widget,
+                _on_tap_fn = on_tap_fn,
+                _action_id = aid,
+            }
+            tappable.ges_events = {
+                TapQA = {
+                    GestureRange:new{
+                        ges   = "tap",
+                        range = function() return tappable.dimen end,
+                    },
                 },
             }
+            function tappable:onTapQA()
+                if self._on_tap_fn then self._on_tap_fn(self._action_id) end
+                return true
+            end
+
+            if i > 1 then
+                local sep_text = TextWidget:new{
+                    text    = "丨",
+                    face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
+                    fgcolor = clr_sub,
+                }
+                local sep_size = sep_text:getSize()
+                if text_gap_px and text_gap_px > 0 then
+                    local group = HorizontalGroup:new{ align = "center" }
+                    group[#group + 1] = HorizontalSpan:new{ width = text_gap_px }
+                    group[#group + 1] = sep_text
+                    group[#group + 1] = HorizontalSpan:new{ width = text_gap_px }
+                    row[#row + 1] = group
+                else
+                    row[#row + 1] = sep_text
+                end
+            end
+            row[#row + 1] = tappable
         else
+            local icon_sz_used = d.icon_sz
+            local icon_widget
+            local nerd_char = Config.nerdIconChar(entry.icon)
+            if nerd_char then
+                icon_widget = CenterContainer:new{
+                    dimen = Geom:new{ w = icon_sz_used, h = icon_sz_used },
+                    TextWidget:new{
+                        text    = nerd_char,
+                        face    = Font:getFace(SUIStyle.FACE_ICONS, math.floor(icon_sz_used * 0.6)),
+                        fgcolor = clr_blk,
+                        padding = 0,
+                    },
+                }
+            else
                 local iw = ImageWidget:new{
-                file    = entry.icon,
-                width   = icon_sz_used,
-                height  = icon_sz_used,
-                is_icon = true,
-                alpha   = true,
-            }
+                    file    = entry.icon,
+                    width   = icon_sz_used,
+                    height  = icon_sz_used,
+                    is_icon = true,
+                    alpha   = true,
+                }
                 if pcall(function() iw:_render() end) then
                     icon_widget = iw
                 else
@@ -160,66 +205,76 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
                         },
                     }
                 end
-        end
+            end
 
-        local is_bare = (shape == "bare")
-        local corner_r = is_bare and 0 or ((shape == "round") and math.floor(d.frame_sz / 2) or d.corner_r)
-        local current_border = (not is_bare and (bg == "solid" or bg == "transparent")) and SUIStyle.BORDER_SZ or 0
-        local bg_color = nil
-        if not is_bare then
-            if bg == "flat" then bg_color = _CLR_FLAT_BG
-            elseif bg == "solid" then bg_color = Blitbuffer.COLOR_WHITE end
-        end
+            local is_bare = (shape == "bare")
+            local corner_r = is_bare and 0 or ((shape == "round") and math.floor(d.frame_sz / 2) or d.corner_r)
+            local current_border = (not is_bare and (bg == "solid" or bg == "transparent")) and SUIStyle.BORDER_SZ or 0
+            local bg_color = nil
+            if not is_bare then
+                if bg == "flat" then bg_color = _CLR_FLAT_BG
+                elseif bg == "solid" then bg_color = Blitbuffer.COLOR_WHITE end
+            end
 
-        local icon_frame = FrameContainer:new{
-            bordersize = current_border,
-            color      = current_border > 0 and _CLR_BAR_FG or nil,
-            background = bg_color,
-            radius     = corner_r,
-            padding    = is_bare and 0 or d.frame_pad,
-            icon_widget,
-        }
+            local icon_frame = FrameContainer:new{
+                bordersize = current_border,
+                color      = current_border > 0 and _CLR_BAR_FG or nil,
+                background = bg_color,
+                radius     = corner_r,
+                padding    = is_bare and 0 or d.frame_pad,
+                icon_widget,
+            }
 
-        local col = VerticalGroup:new{ align = "center" }
-        col[#col + 1] = icon_frame
-        if show_labels then
-            col[#col + 1] = VerticalSpan:new{ width = lbl_sp }
-            col[#col + 1] = CenterContainer:new{
-                dimen = Geom:new{ w = d.frame_sz, h = lbl_h },
-                TextWidget:new{
-                    text    = entry.label,
-                    face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
-                    fgcolor = clr_blk,
-                    max_width = d.frame_sz,
-                    truncate_with_ellipsis = true,
+            local col = VerticalGroup:new{ align = "center" }
+            col[#col + 1] = icon_frame
+            if show_labels then
+                col[#col + 1] = VerticalSpan:new{ width = lbl_sp }
+                col[#col + 1] = CenterContainer:new{
+                    dimen = Geom:new{ w = d.frame_sz, h = lbl_h },
+                    TextWidget:new{
+                        text    = entry.label,
+                        face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
+                        fgcolor = clr_blk,
+                        max_width = d.frame_sz,
+                        truncate_with_ellipsis = true,
+                    },
+                }
+            end
+
+            local col_h    = d.frame_sz + lbl_sp + lbl_h
+            local tappable = InputContainer:new{
+                dimen      = Geom:new{ w = d.frame_sz, h = col_h },
+                [1]        = col,
+                _on_tap_fn = on_tap_fn,
+                _action_id = aid,
+            }
+            tappable.ges_events = {
+                TapQA = {
+                    GestureRange:new{
+                        ges   = "tap",
+                        range = function() return tappable.dimen end,
+                    },
                 },
             }
-        end
+            function tappable:onTapQA()
+                if self._on_tap_fn then self._on_tap_fn(self._action_id) end
+                return true
+            end
 
-        local col_h    = d.frame_sz + lbl_sp + lbl_h
-        local tappable = InputContainer:new{
-            dimen      = Geom:new{ w = d.frame_sz, h = col_h },
-            [1]        = col,
-            _on_tap_fn = on_tap_fn,
-            _action_id = aid,
-        }
-        tappable.ges_events = {
-            TapQA = {
-                GestureRange:new{
-                    ges   = "tap",
-                    range = function() return tappable.dimen end,
-                },
-            },
-        }
-        function tappable:onTapQA()
-            if self._on_tap_fn then self._on_tap_fn(self._action_id) end
-            return true
+            if i > 1 then
+                local gap = math.floor((inner_w - n * d.frame_sz) / (n - 1))
+                row[#row + 1] = HorizontalSpan:new{ width = gap }
+            end
+            row[#row + 1] = tappable
         end
+    end
 
-        if i > 1 then
-            row[#row + 1] = HorizontalSpan:new{ width = gap }
-        end
-        row[#row + 1] = tappable
+    local left_off = 0
+    if is_text_only then
+        local row_w = row:getSize().w
+        left_off = math.floor((inner_w - row_w) / 2)
+    else
+        left_off = n == 1 and math.floor((inner_w - d.frame_sz) / 2) or 0
     end
 
     return FrameContainer:new{
@@ -237,6 +292,7 @@ local function makeInstance(inst_id)
     local slot_suffix = inst_id
     local SHAPE_KEY   = slot_suffix .. "_shape"
     local BG_KEY      = slot_suffix .. "_bg"
+    local TEXT_GAP_KEY = slot_suffix .. "_text_gap"
 
     local function getShape(pfx)
         return SUISettings:readSetting(pfx .. SHAPE_KEY) or "rounded_square"
@@ -258,6 +314,14 @@ local function makeInstance(inst_id)
 
     function S.setEnabled(pfx, on)
         SUISettings:saveSetting(pfx .. slot_suffix .. "_enabled", on)
+    end
+
+    function S.getTextGapPct(pfx)
+        return tonumber(SUISettings:readSetting((pfx or "") .. TEXT_GAP_KEY)) or 100
+    end
+
+    function S.setTextGapPct(pfx, val)
+        SUISettings:saveSetting((pfx or "") .. TEXT_GAP_KEY, val)
     end
 
     local MAX_QA = 6
@@ -514,7 +578,10 @@ local function makeInstance(inst_id)
             blk = _theme_fg or Blitbuffer.COLOR_BLACK,
             sub = _theme_secondary or _theme_fg or CLR_TEXT_SUB,
         } or nil
-        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d, getShape(ctx.pfx), getBg(ctx.pfx), colors)
+                local text_gap_pct = S.getTextGapPct(ctx.pfx_qa or ctx.pfx)
+        local base_gap = Screen:scaleBySize(24)
+        local text_gap_px = math.max(0, math.floor(base_gap * text_gap_pct / 100))
+        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d, getShape(ctx.pfx), getBg(ctx.pfx), colors, text_gap_px)
     end
 
     function S.getHeight(ctx)
@@ -601,7 +668,43 @@ local function makeInstance(inst_id)
                         refresh()
                     end,
                 },
+                {
+                    text           = _lc("Text only"),
+                    radio          = true,
+                    checked_func   = function() return getShape(pfx) == "text_only" end,
+                    keep_menu_open = true,
+                    callback       = function()
+                        SUISettings:saveSetting(pfx .. SHAPE_KEY, "text_only")
+                        refresh()
+                    end,
+                },
             },
+        }
+
+        items[#items + 1] = {
+            text = _lc("Text spacing"),
+            enabled_func = function() return getShape(pfx) == "text_only" end,
+            value_func = function() return S.getTextGapPct(pfx) .. "%" end,
+            callback = function()
+                local SpinWidget = require("ui/widget/spinwidget")
+                local UIManager  = require("ui/uimanager")
+                UIManager:show(SpinWidget:new{
+                    title_text    = _lc("Text spacing"),
+                    info_text     = _lc("Control the spacing between text items in the Quick Actions Row.\n\n0% = no spacing, 100% = default spacing."),
+                    value         = S.getTextGapPct(pfx),
+                    value_min     = 20,
+                    value_max     = 600,
+                    value_step    = 10,
+                    unit          = "%",
+                    ok_text       = _("Apply"),
+                    cancel_text   = _("Cancel"),
+                    default_value = 100,
+                    callback      = function(spin)
+                        S.setTextGapPct(pfx, spin.value)
+                        refresh()
+                    end,
+                })
+            end,
         }
 
         items[#items + 1] = {

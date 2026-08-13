@@ -45,26 +45,39 @@ local function _localDate()
     -- nil in LuaJIT on some platforms (macOS emulator) when timezone handling
     -- fails. os.date("*t", os.time()) is always safe.
     local now = os.time()
-    local t   = os.date("*t", now)
-    if not t or not t.mday then
-        -- Fallback via the datetime module's locale-aware formatter.
-        return datetime.secondsToDate(now, true)
-    end
+
+    local month_id  = os.date("%m", now)
+    local day       = os.date("%d", now)
+    local week_id   = os.date("%w", now)
+
     -- Build translation tables on first call only; never recreated afterwards.
-    if not _weekdays then
-        _weekdays = {
-            _("Sunday"), _("Monday"), _("Tuesday"), _("Wednesday"),
-            _("Thursday"), _("Friday"), _("Saturday"),
-        }
-        _months = {
-            _("January"), _("February"), _("March"),     _("April"),
-            _("May"),     _("June"),     _("July"),       _("August"),
-            _("September"), _("October"), _("November"),  _("December"),
-        }
+    local _weekdays = {
+        _("Sun"), _("Mon"), _("Tue"), _("Wed"),
+        _("Thu"), _("Fri"), _("Sat"),
+    }
+
+    local _months = {
+        _("Jan"), _("Feb"), _("Mar"), _("Apr"),
+        _("May"), _("Jun"), _("Jul"), _("Aug"),
+        _("Sep"), _("Oct"), _("Nov"), _("Dec"),
+    }
+
+    local weekday = _weekdays[tonumber(week_id) + 1]
+    local month   = _months[tonumber(month_id)]
+
+    local date_format = _("date_format")
+
+    -- Use English as the default format when no translation is available.
+    if date_format == "date_format" then
+        date_format = "%M %D, %W"
     end
-    local weekday = _weekdays[t.wday] or os.date("%A", now)
-    local month   = _months[t.month]  or os.date("%B", now)
-    return string.format("%s, %d %s", weekday, t.mday, month)
+
+    date_format = date_format:gsub("%%M", month)
+    date_format = date_format:gsub("%%D", day)
+    date_format = date_format:gsub("%%W", weekday)
+
+    -- return date_format
+    return date_format
 end
 
 -- ---------------------------------------------------------------------------

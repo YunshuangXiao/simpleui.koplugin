@@ -1491,12 +1491,12 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
     local TextWidget = require("ui/widget/textwidget")
     local Font = require("ui/font")
     local Geom = require("ui/geometry")
-    
+
     local btn_size = ctx.SZ(Screen:scaleBySize(36))
     local icon_size = math.floor(btn_size * 0.7)
     local ok_ss, SUIStyle = pcall(require, "sui_style")
     local border_sz = ok_ss and SUIStyle.BORDER_SZ or 1
-    
+
     local function makeIconPreview(icon_path, is_nerd, fallback_label)
         local icon_widget
         if is_nerd and icon_path then
@@ -1526,7 +1526,7 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
                 end
             end
         end
-        
+
         if not icon_widget then
             icon_widget = TextWidget:new{
                 text    = fallback_label and fallback_label:sub(1, 1):upper() or "?",
@@ -1534,7 +1534,7 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
                 fgcolor = Blitbuffer.COLOR_BLACK,
             }
         end
-        
+
         return FrameContainer:new{
             dimen      = Geom:new{ w = btn_size, h = btn_size },
             radius     = ctx.SZ(Screen:scaleBySize(8)),
@@ -1573,19 +1573,19 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
             if entry.is_default then table.insert(defaults, entry)
             else table.insert(customs, entry) end
         end
-        
+
         local function add_entry(entry)
             local _id         = entry.id
             local _is_default = entry.is_default
             local _title      = entry.title
-            
+
             local current_icon
             if _is_default then
                 current_icon = QA.getDefaultActionIcon(_id)
             else
                 current_icon = Config.getCustomQAConfig(_id).icon
             end
-            
+
             local has_custom = _is_default
                 and QA.getDefaultActionIcon(_id) ~= nil
                 or (not _is_default and (function()
@@ -1596,7 +1596,7 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
                             and c.icon ~= Config.CUSTOM_DISPATCHER_ICON
                             and c.icon ~= Config.CUSTOM_GROUP_ICON
                     end)())
-                    
+
             local is_nerd = Config.isNerdIcon(current_icon)
             local effective_icon = current_icon
             if not effective_icon then
@@ -1620,7 +1620,7 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
                     end
                 end
             end
-            
+
             rows[#rows + 1] = {
                 text = _title .. (has_custom and "  \u{270E}" or ""),
                 show_chevron = true,
@@ -1638,7 +1638,7 @@ function QA.sui_build_qa_icons(plugin, ctx_menu, ctx)
                                 ctx_menu.UIManager:show(ctx_menu.InfoMessage:new{ text = _("Unsupported icon format.\nPlease use a PNG or SVG file."), timeout = 3 })
                             end
                         end
-                        
+
                         if Config.isNerdIcon(new_icon) then
                             if _is_default then
                                 QA.setDefaultActionIcon(_id, new_icon)
@@ -2180,7 +2180,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                 UIManager:close(active_dialog)
                 active_dialog = nil
             end
-            
+
             QA.showIconPicker(chosen_icon, function(new_icon)
                 chosen_icon = new_icon
                 _buildSaveDialog(false)
@@ -2207,7 +2207,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         else
             action_label = action_label .. _("None")
         end
-        
+
         if update_name_with_title and current_action_title then
             cfg.label = current_action_title
         end
@@ -2223,7 +2223,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                         local inputs = active_dialog:getFields()
                         if inputs and inputs[1] then cfg.label = inputs[1] end
                     end
-                    openActionPicker() 
+                    openActionPicker()
                 end } },
                 { { text = iconButtonLabel(default_lbl),
                     callback = function() openIconPicker() end } },
@@ -2237,9 +2237,9 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                         end
                         local inputs = active_dialog:getFields()
                         local final_label = Config.sanitizeLabel(inputs[1]) or current_action_title or _("Action")
-                        
+
                         UIManager:close(active_dialog); active_dialog = nil
-                        
+
                         local p_path, p_coll, p_pk, p_pm, p_da
                         if current_action_type == "path" then p_path = current_action_val1
                         elseif current_action_type == "collection" then p_coll = current_action_val1

@@ -37,47 +37,56 @@ local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 -- that _() is called after the user's locale has been applied. They are built
 -- on the first _localDate() call and reused from that point on — the locale
 -- never changes within a running KOReader session, so caching is safe.
-local _weekdays = nil
-local _months   = nil
+local _WEEK_ABBR = nil
+local function _weekAbbr()
+    if not _WEEK_ABBR then
+        _WEEK_ABBR = {
+            _("Sun"), _("Mon"), _("Tue"), _("Wed"),
+            _("Thu"), _("Fri"), _("Sat"),
+        }
+    end
+    return _WEEK_ABBR
+end
+
+local _MONTH_ABBR = nil
+local function _monthAbbr()
+    if not _MONTH_ABBR then
+        _MONTH_ABBR = {
+            _("Jan"), _("Feb"), _("Mar"), _("Apr"),
+            _("May"), _("Jun"), _("Jul"), _("Aug"),
+            _("Sep"), _("Oct"), _("Nov"), _("Dec"),
+        }    end
+    return _MONTH_ABBR
+end
 
 local function _localDate()
     -- Pass os.time() explicitly: os.date("*t") without argument can return
     -- nil in LuaJIT on some platforms (macOS emulator) when timezone handling
     -- fails. os.date("*t", os.time()) is always safe.
     local now = os.time()
+    local monthAbbr = _monthAbbr()
+    local weekAbbr  = _weekAbbr()
 
     local month_id  = os.date("%m", now)
     local day       = os.date("%d", now)
     local week_id   = os.date("%w", now)
 
-    -- Build translation tables on first call only; never recreated afterwards.
-    local _weekdays = {
-        _("Sun"), _("Mon"), _("Tue"), _("Wed"),
-        _("Thu"), _("Fri"), _("Sat"),
-    }
+    local month   = monthAbbr[tonumber(month_id)]
+    local weekday = weekAbbr[tonumber(week_id)+1]
 
-    local _months = {
-        _("Jan"), _("Feb"), _("Mar"), _("Apr"),
-        _("May"), _("Jun"), _("Jul"), _("Aug"),
-        _("Sep"), _("Oct"), _("Nov"), _("Dec"),
-    }
-
-    local weekday = _weekdays[tonumber(week_id) + 1]
-    local month   = _months[tonumber(month_id)]
-
-    local date_format = _("date_format")
+    local today_format = _("today_format")
 
     -- Use English as the default format when no translation is available.
-    if date_format == "date_format" then
-        date_format = "%M %D, %W"
+    if today_format == "today_format" then
+        today_format = "%M %D, %W"
     end
 
-    date_format = date_format:gsub("%%M", month)
-    date_format = date_format:gsub("%%D", day)
-    date_format = date_format:gsub("%%W", weekday)
+    today_format = today_format:gsub("%%M", month)
+    today_format = today_format:gsub("%%D", day)
+    today_format = today_format:gsub("%%W", weekday)
 
-    -- return date_format
-    return date_format
+    -- return today_format
+    return today_format
 end
 
 -- ---------------------------------------------------------------------------

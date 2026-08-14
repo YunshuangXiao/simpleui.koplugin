@@ -1547,7 +1547,7 @@ function SUIWindow.ListRow(opts)
     local edit_w  = has_edit and (_CHEVRON_W() * 2) or 0
     local upd_w   = has_update and (_CHEVRON_W() * 2) or 0
     local more_w  = has_more   and (_CHEVRON_W() * 2) or 0
-    local val_w   = has_value and SZ(Screen:scaleBySize(120)) or 0
+    local val_w   = has_value and SZ(Screen:scaleBySize(150)) or 0
     local widget_w = 0
     if has_right_widget then
         local sz = type(opts.right_widget.getSize) == "function" and opts.right_widget:getSize() or opts.right_widget.dimen

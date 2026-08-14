@@ -929,8 +929,19 @@ msgid "Date started"
 msgstr "开始日期"
 
 #: desktop_modules/module_clock.lua:68 desktop_modules/module_clock.lua:71
-msgid "date_format"
+msgid "today_format"
 msgstr "%M%D日 %W"
+
+#: sui_stats_windows.lua:1842 sui_stats_windows.lua:1845
+msgid "date_format"
+msgstr "%Y年%m月%d日"
+
+#: sui_stats_windows.lua:472
+msgid "range_format"
+msgstr "%Y年%M%D日"
+
+msgid "range_format_no_year"
+msgstr "%M%D日"
 
 #: sui_stats_windows.lua:950 sui_stats_windows.lua:3675
 msgid "Days"
@@ -4127,8 +4138,8 @@ msgstr[1] "  （剩余 %s）"
 #: desktop_modules/module_reading_goals.lua:847
 msgid "  Set Goal  (%d book in %s)"
 msgid_plural "  Set Goal  (%d books in %s)"
-msgstr[0] "  设置目标（读 %d 本书在 %s 年）"
-msgstr[1] "  设置目标（读 %d 本书在 %s 年）"
+msgstr[0] "  设置目标（%s 年读 %d 本书）"
+msgstr[1] "  设置目标（%s 年读 %d 本书）"
 
 #: desktop_modules/module_reading_goals.lua:472
 msgid "%d book"
@@ -4139,14 +4150,14 @@ msgstr[1] "%d 本书"
 #: desktop_modules/module_reading_goals.lua:952
 msgid "%d book in %s"
 msgid_plural "%d books in %s"
-msgstr[0] "%d 本书在 %s 年"
-msgstr[1] "%d 本书在 %s 年"
+msgstr[0] "%s 年 %d 本书"
+msgstr[1] "%s 年 %d 本书"
 
 #: sui_stats_windows.lua:1291
 msgid "%d book read in %s"
 msgid_plural "%d books read in %s"
-msgstr[0] "已读 %d 本书在 %s 年"
-msgstr[1] "已读 %d 本书在 %s 年"
+msgstr[0] "%s 年已读 %d 本书"
+msgstr[1] "%s 年已读 %d 本书"
 
 #: sui_stats_windows.lua:2170 sui_stats_windows.lua:2172
 msgid "%d day"
@@ -4172,8 +4183,8 @@ msgstr[1] "%d 次冻结可用"
 #: desktop_modules/module_reading_goals.lua:1038
 msgid "%d in %s"
 msgid_plural "%d in %s"
-msgstr[0] "%d 本在 %s 年"
-msgstr[1] "%d 本在 %s 年"
+msgstr[0] "%s 年 %d 本"
+msgstr[1] "%s 年 %d 本"
 
 #: sui_quickactions.lua:1388 sui_quickactions.lua:2664
 #: sui_quickactions.lua:2685
@@ -4211,8 +4222,8 @@ msgstr[1] "分组（%d 个项目）"
 #: desktop_modules/module_reading_goals.lua:1029
 msgid "Manually Tracked Books  (%d in %s)"
 msgid_plural "Manually Tracked Books  (%d in %s)"
-msgstr[0] "手动导入的书籍（%d 本在 %s 年）"
-msgstr[1] "手动导入的书籍（%d 本在 %s 年）"
+msgstr[0] "手动导入的书籍（%s 年 %d 本）"
+msgstr[1] "手动导入的书籍（%s 年 %d 本）"
 
 #: sui_quicksettings_bar.lua:1158
 msgid "Maximum of %d slot reached. Remove one first."

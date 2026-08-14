@@ -440,13 +440,36 @@ local function _fmtDateRange(start_ts, finish_str)
     local sf   = _parseDate(finish_str)
     local ss   = _parseDate(start_ts)
     if not sf then return "\xe2\x80\x93" end
-    local finish_part = string.format("%02d %s %d", sf.d, abbr[sf.m] or "?", sf.y)
-    if not ss then return finish_part end
-    if ss.y == sf.y then
-        return string.format("%02d %s \xe2\x80\x93 %s", ss.d, abbr[ss.m] or "?", finish_part)
+
+    local function replace_format(format_key, y, m, d)
+        local fmt = _(format_key)
+
+        if fmt == format_key then
+            if format_key == "range_format" then
+                fmt = "%M %D, %Y"
+            elseif format_key == "range_format_no_year" then
+                fmt = "%M %D"
+            end
+        end
+
+        if y ~= nil then
+            fmt = fmt:gsub("%%Y", tostring(y))
+        end
+
+        fmt = fmt:gsub("%%M", abbr[m] or "?")
+        fmt = fmt:gsub("%%D", tostring(d))
+
+        return fmt
+    end
+
+    if not ss or (ss.y == sf.y and ss.m == sf.m and ss.d == sf.d) then
+        return replace_format("range_format", sf.y, sf.m, sf.d)
+    end
+
+    if ss.y == sf.y then 
+        return replace_format("range_format", ss.y, ss.m, ss.d) .. " \xe2\x80\x93 " .. replace_format("range_format_no_year", nil, sf.m, sf.d)
     else
-        return string.format("%02d %s %d \xe2\x80\x93 %s",
-            ss.d, abbr[ss.m] or "?", ss.y, finish_part)
+        return replace_format("range_format", ss.y, ss.m, ss.d) .. " \xe2\x80\x93 " .. replace_format("range_format", sf.y, sf.m, sf.d)
     end
 end
 
@@ -1430,7 +1453,7 @@ local _MONTH_SHORT = {
     _("jul"), _("aug"), _("sep"), _("oct"), _("nov"), _("dec"),
 }
 local _MONTH_FULL = {
-    _("january"), _("february"), _("march"), _("april"), _("may"), _("june"),    
+    _("january"), _("february"), _("march"), _("april"), _("may"), _("june"),
     _("july"), _("august"), _("september"), _("october"), _("november"), _("december"),
 }
 
@@ -1835,8 +1858,18 @@ end
 
 -- Formats a timestamp (unix) into a short locale-independent date string.
 local function _riFmtDate(ts)
-    if not ts or ts <= 0 then return "–" end
-    return os.date("%d %b '%y", ts)
+    if not ts or ts <= 0 then
+        return "–"
+    end
+
+    local date_format = _("date_format")
+
+    -- Use English as the default format when no translation is available.
+    if date_format == "date_format" then
+        date_format = "%b %d, %Y"
+    end
+
+    return os.date(date_format, ts)
 end
 
 -- Formats a large integer with thousands separator (e.g. 1234 → "1,234").

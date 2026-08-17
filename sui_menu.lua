@@ -4295,6 +4295,22 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                     },
                 }, -- end Icons sub_item_table
             },   -- end Icons submenu
+
+            -- ── Date Style ─────────────────────────────────────────────────────
+            {
+                text = _("Date Style"),
+                sub_item_table_func = function()
+                    local ok_ss, SUIStyle = pcall(require, "sui_style")
+                    if not ok_ss or not SUIStyle or not SUIStyle.makeDateStyleMenuItems then
+                        return {{
+                            text = _("Using system default date format"),
+                            enabled = false,
+                        }}
+                    end
+                    return SUIStyle.makeDateStyleMenuItems()
+                end,
+            },
+
             -- ── UI Font ───────────────────────────────────────────────────
             {
                 text = _("UI Font"),

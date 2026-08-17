@@ -20,6 +20,7 @@ local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
 local _               = require("sui_i18n").translate
 local N_              = require("sui_i18n").ngettext
+local F_              = require("sui_i18n").format
 local logger          = require("logger")
 local Config          = require("sui_config")
 local SUIStyle        = require("sui_style")
@@ -442,8 +443,35 @@ local function _fmtDateRange(start_ts, finish_str)
     if not sf then return "\xe2\x80\x93" end
 
     local function replace_format(format_key, y, m, d)
-        local fmt = _(format_key)
+        local ok_ss, SUIStyle = pcall(require, "sui_style")
 
+        if ok_ss
+            and SUIStyle
+            and SUIStyle.getDateStyleInfo
+            and SUIStyle.formatDate
+        then
+            local style = SUIStyle.getDateStyleInfo("stat")
+            local fmt
+            if style then
+                if format_key == "range_format" then
+                    fmt = style.no_week_format
+                elseif format_key == "range_format_no_year" then
+                    fmt = style.no_year_week_format
+                end
+            end
+
+            if fmt then
+                local ts
+                if y ~= nil then
+                    ts = os.time{year = y, month = m, day = d}
+                else
+                    ts = os.time{year = 1900, month = m, day = d}
+                end
+                return SUIStyle.formatDate(fmt, ts)
+            end
+        end
+
+        local fmt = _(format_key)
         if fmt == format_key then
             if format_key == "range_format" then
                 fmt = "%M %D, %Y"
@@ -489,6 +517,22 @@ local function _fmtDuration(secs)
 end
 
 local function _fmtDate(ts)
+    local ok_ss, SUIStyle = pcall(require, "sui_style")
+    if ok_ss
+        and SUIStyle
+        and SUIStyle.getDateStyleInfo
+        and SUIStyle.formatDate
+    then
+        local style = SUIStyle.getDateStyleInfo("stat")
+        local fmt
+        if style then
+            fmt = style.no_week_format
+        end
+        if fmt then
+            return SUIStyle.formatDate(fmt, ts)
+        end
+    end
+
     return os.date("%Y-%m-%d", ts)
 end
 
@@ -1265,10 +1309,11 @@ function StatsWindows.showFinishedBooksDialog(initial_page)
         local original_end_str   = (type(book.date_finished) == "string" and d.last_open and _fmtDate(d.last_open)) or "\xe2\x80\x93"
 
         -- Prefer sidecar dates over raw DB timestamps.
-        local date_start_str = (type(book.date_started) == "string" and book.date_started)
-                               or original_start_str
-        local date_end_str   = (type(book.date_finished) == "string" and book.date_finished)
-                               or original_end_str
+        local start_ts = type(book.date_started) == "string" and _dateStrToTs(book.date_started)
+        local date_start_str = start_ts and _fmtDate(start_ts) or original_start_str
+
+        local end_ts = type(book.date_finished) == "string" and _dateStrToTs(book.date_finished, true)
+        local date_end_str = end_ts and _fmtDate(end_ts) or original_end_str
 
         local date_widget = _makeDateCard(
             inner_w, PAD_H,
@@ -1310,7 +1355,7 @@ function StatsWindows.showFinishedBooksDialog(initial_page)
                 count = count + 1
             end
         end
-        return string.format(
+        return F_(
             N_("%d book read in %s", "%d books read in %s", count),
             count, year_str)
     end
@@ -1862,13 +1907,26 @@ local function _riFmtDate(ts)
         return "–"
     end
 
-    local date_format = _("date_format")
+    local ok_ss, SUIStyle = pcall(require, "sui_style")
+    if ok_ss
+        and SUIStyle
+        and SUIStyle.getDateStyleInfo
+        and SUIStyle.formatDate
+    then
+        local style = SUIStyle.getDateStyleInfo("stat")
+        if style then
+            local format = style.no_week_format
+            if format then
+                return SUIStyle.formatDate(format, ts)
+            end
+        end
+    end
 
+    local date_format = _("date_format")
     -- Use English as the default format when no translation is available.
     if date_format == "date_format" then
         date_format = "%b %d, %Y"
     end
-
     return os.date(date_format, ts)
 end
 
@@ -1878,8 +1936,6 @@ local function _riFmtCount(n)
     local s = tostring(n)
     return s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
 end
-
-
 
 -- SZ threaded in by the caller (ctx.SZ); falls back to UI.SZ if ever called
 -- without one (identical value during a synchronous window build).

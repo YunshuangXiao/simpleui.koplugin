@@ -59,10 +59,43 @@ local function _monthAbbr()
     return _MONTH_ABBR
 end
 
-local function _localDate()
-    -- Pass os.time() explicitly: os.date("*t") without argument can return
-    -- nil in LuaJIT on some platforms (macOS emulator) when timezone handling
-    -- fails. os.date("*t", os.time()) is always safe.
+local function _localDate(show_year, show_week)
+    -- Default: show both year and weekday.
+    if show_year == nil then show_year = false end
+    if show_week == nil then show_week = true end
+
+    local ok_ss, SUIStyle = pcall(require, "sui_style")
+
+    if ok_ss
+        and SUIStyle
+        and SUIStyle.getDateStyleInfo
+        and SUIStyle.formatDate
+    then
+        local style = SUIStyle.getDateStyleInfo("desktop")
+
+        if style then
+            local format
+
+            if show_year and show_week then
+                format = style.full_format
+
+            elseif not show_year and show_week then
+                format = style.no_year_format
+
+            elseif show_year and not show_week then
+                format = style.no_week_format
+
+            else
+                format = style.no_year_week_format
+            end
+
+            return SUIStyle.formatDate(format, os.time())
+        end
+    end
+
+    -- ---------------------------------------------------------------
+    -- KOReader/system fallback
+    -- ---------------------------------------------------------------
     local now = os.time()
     local monthAbbr = _monthAbbr()
     local weekAbbr  = _weekAbbr()
@@ -85,7 +118,6 @@ local function _localDate()
     today_format = today_format:gsub("%%D", day)
     today_format = today_format:gsub("%%W", weekday)
 
-    -- return today_format
     return today_format
 end
 

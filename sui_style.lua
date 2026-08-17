@@ -1,4 +1,4 @@
--- sui_style.lua — SimpleUI  ▸  Style  ▸  Icons  ▸  System Icons
+-- sui_style.lua — SimpleUI  ▸  Style  ▸  Icons  ▸  System Icons  ▸  Date Style
 --
 -- Manages custom icon overrides for:
 --   • KOReader FM + Reader touch-menu tabs (appbar.filebrowser / settings /
@@ -61,10 +61,20 @@
 --   SUIStyle.setThemeColor(role, hex)    — save "#RRGGBB" or nil to reset
 --   SUIStyle.resetTheme()               — clear all theme color overrides
 --   SUIStyle.makeThemeMenuItems()        — returns sub_item_table for Style ▸ Theme Colors
+-- 
+-- Date Style API
+-- ─────────────
+--   SUIStyle.DATE_STYLES              — available date format styles
+--   SUIStyle.getDateStyle(type)       — current style for "desktop"|"stat"
+--   SUIStyle.setDateStyle(type, id)   — save selected style
+--   SUIStyle.getDateFormat(type)      — return the actual strftime format
+--   SUIStyle.makeDateStyleMenuItems() — returns the Date Style submenu
+
 
 local SUISettings = require("sui_store")
 local logger      = require("logger")
 local _           = require("sui_i18n").translate
+local F_          = require("sui_i18n").format
 local Blitbuffer  = require("ffi/blitbuffer")
 local Device      = require("device")
 local Screen      = Device.screen
@@ -1147,8 +1157,7 @@ local function _reapplyTitlebar()
         text           = _("Reset All System Icons"),
         keep_menu_open = true,
         callback       = function()
-            M.performResetAllSystemIcons(plugin)
-        end,
+            M.performResetAllSystemIcons(plugin) end,
         separator      = true,
     }
 
@@ -2399,6 +2408,1200 @@ function M.applyPack(pack_path)
     end
     if lfs.attributes(pack_dir, "mode") ~= "directory" then return nil, _("Pack folder not accessible: ") .. tostring(pack_dir) end
     return _applyFromDir(pack_dir)
+end
+
+
+-- ===========================================================================
+-- Date Style API
+-- ===========================================================================
+--
+-- Provides configurable date formats for different SimpleUI contexts.
+--
+-- Supported style types:
+--   • "desktop" — Desktop / Homescreen date
+--   • "stat"    — Status / Statistics date
+--
+-- Each style provides two formats:
+--
+--   date_format
+--       Date only.
+--
+--   date_week_format
+--       Date + weekday.
+--
+-- Public API:
+--
+--   SUIStyle.DATE_STYLES
+--   SUIStyle.getDateStyle(style_type)
+--   SUIStyle.setDateStyle(style_type, style_id)
+--   SUIStyle.getDateFormat(style_type, show_week)
+--   SUIStyle.getDateStyleInfo(style_type)
+--   SUIStyle.makeDateStyleMenuItems()
+--
+-- Settings:
+--
+--   simpleui_date_style_desktop
+--   simpleui_date_style_stat
+--
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- Date style catalogue
+-- ---------------------------------------------------------------------------
+-- Example: 2026-08-09
+-- ----------------------------------------------------------
+--  year    |   %Y      |   %y      |   %YY     |   %yy     |
+--          |  2026     |   26      |   2026    |   26      |
+-- ----------------------------------------------------------
+--  month   |   %M      |   %m      |   %MM     |   %mm     |
+--          |   08      |   8       |   August  |   Aug     |
+-- ----------------------------------------------------------
+--  day     |   %D      |   %d      |   %DD     |   %dd     |
+--          |   09      |   9       |   09      |   9       |
+-- ----------------------------------------------------------
+--  week    |   %W      |   %w      |   %WW     |   %ww     |
+--          |   sunday  |   sun     |   sunday  |   sun     |
+-- ----------------------------------------------------------
+-- YY/yy, MM/mmm, DD/dd, WW/ww -> locale
+
+local _DATE_MONTH_FULL = nil
+local _DATE_MONTH_ABBR = nil
+local _DATE_WEEK_FULL = nil
+local _DATE_WEEK_ABBR = nil
+
+local function _getDateMonthFull()
+    if not _DATE_MONTH_FULL then
+        _DATE_MONTH_FULL = {
+            _("January"), _("February"), _("March"), _("April"),
+            _("May"), _("June"), _("July"), _("August"),
+            _("September"), _("October"), _("November"), _("December"),
+        }
+    end
+    return _DATE_MONTH_FULL
+end
+
+local function _getDateMonthAbbr()
+    if not _DATE_MONTH_ABBR then
+        _DATE_MONTH_ABBR = {
+            _("Jan"), _("Feb"), _("Mar"), _("Apr"),
+            _("May"), _("Jun"), _("Jul"), _("Aug"),
+            _("Sep"), _("Oct"), _("Nov"), _("Dec"),
+        }
+    end
+    return _DATE_MONTH_ABBR
+end
+
+local function _getDateWeekFull()
+    if not _DATE_WEEK_FULL then
+        _DATE_WEEK_FULL = {
+            _("Sunday"), _("Monday"), _("Tuesday"), _("Wednesday"),
+            _("Thursday"), _("Friday"), _("Saturday"),
+        }
+    end
+    return _DATE_WEEK_FULL
+end
+
+local function _getDateWeekAbbr()
+    if not _DATE_WEEK_ABBR then
+        _DATE_WEEK_ABBR = {
+            _("Sun"), _("Mon"), _("Tue"), _("Wed"),
+            _("Thu"), _("Fri"), _("Sat"),
+        }
+    end
+    return _DATE_WEEK_ABBR
+end
+
+-- ---------------------------------------------------------------------------
+-- Locale-driven "long form" templates for %YY / %yy / %DD / %dd.
+--
+-- These four tokens mean "the natural way this locale writes a bare
+-- year/day number" — for English that's just the number itself; some
+-- locales (e.g. Chinese) add a suffix (年 / 日). Instead of hardcoding
+-- any language-specific suffix in Lua, the template comes entirely from
+-- gettext (.po) files, so each language controls its own rendering with
+-- zero code changes.
+--
+-- Translators: msgstr must contain exactly one "%s" placeholder, which
+-- gets replaced with the plain numeric value (e.g. "2026" or "9").
+-- Anything else around it (suffix, prefix, punctuation) is up to the
+-- translation.
+--
+--     en.po:  msgstr "%s"     ->  "2026"   (identity, no suffix)
+--     zh.po:  msgstr "%s年"   ->  "2026年"
+--     zh.po:  msgstr "%s日"   ->  "9日"
+-- ---------------------------------------------------------------------------
+
+-- xgettext extraction hint: these msgids are looked up dynamically below
+-- (not via a literal _("...") call at the use site), so a plain string
+-- scan would otherwise miss them. This dead branch keeps them visible to
+-- extraction tools when regenerating the .pot file.
+if false then
+    _("date_locale_year_format")
+    _("date_locale_day_format")
+end
+
+local function _localeNumberTemplate(msgid)
+    local translated = _(msgid)
+    -- Guard against a missing translation (gettext returning the raw
+    -- msgid) or a malformed one (translator forgot the %s): fall back to
+    -- plain identity so this can never crash or leak an internal key to
+    -- the user.
+    if type(translated) ~= "string" or not translated:find("%%s") then
+        return "%s"
+    end
+    return translated
+end
+
+local function _applyLocaleNumberTemplate(msgid, number_str)
+    local tmpl = _localeNumberTemplate(msgid)
+    local ok, result = pcall(F_, tmpl, number_str)
+    if ok and type(result) == "string" then
+        return result
+    end
+    return number_str -- last-resort fallback: plain number, never crash
+end
+
+M.DATE_STYLES = {
+
+    -- -----------------------------------------------------------------------
+    -- default: Aug 17, Mon
+    -- -----------------------------------------------------------------------
+    {
+        id = "short",
+        label = function() return _("default") end,
+        full_format         = "%mm %d, %ww",
+        no_year_format      = "%mm %d, %ww",
+        no_week_format      = "%mm %d",
+        no_year_week_format = "%mm %d",
+    },
+
+    -- -----------------------------------------------------------------------
+    -- ISO: 2026-08-17 Mon
+    -- -----------------------------------------------------------------------
+    {
+        id = "iso",
+        label = function() return _("iso") end,
+        full_format         = "%Y-%M-%D %ww",
+        no_year_format      = "%M-%D, %ww",
+        no_week_format      = "%Y-%M-%D",
+        no_year_week_format = "%M-%D",
+    },
+
+
+    -- -----------------------------------------------------------------------
+    -- Chinese: 2026年8月17日 周一
+    -- -----------------------------------------------------------------------
+    {
+        id = "cn",
+        label = function() return _("cn") end,
+        full_format         = "%YY%mm%dd %ww",
+        no_year_format      = "%mm%dd %ww",
+        no_week_format      = "%YY%mm%dd",
+        no_year_week_format = "%mm%dd",
+    },
+
+    -- -----------------------------------------------------------------------
+    -- us: Mon, Aug 17, 2026
+    -- -----------------------------------------------------------------------
+    {
+        id = "us",
+        label = function() return _("us") end,
+        full_format         = "%ww, %mm %d, %Y",
+        no_year_format      = "%ww, %mm %d",
+        no_week_format      = "%mm %d, %Y",
+        no_year_week_format = "%mm %d",
+    },
+
+
+    -- -----------------------------------------------------------------------
+    -- uk_eu: 17 Aug 2026 (Mon)
+    -- -----------------------------------------------------------------------
+    {
+        id = "uk_eu",
+        label = function() return _("uk_eu") end,
+        full_format         = "%d %mm %Y (%ww)",
+        no_year_format      = "%d %mm (%ww)",
+        no_week_format      = "%d %mm %Y",
+        no_year_week_format = "%d %mm",
+    },
+
+    -- -----------------------------------------------------------------------
+    -- slash: 2026/08/17 Mon
+    -- -----------------------------------------------------------------------
+    {
+        id = "slash",
+        label = function() return _("slash") end,
+        full_format         = "%Y/%M/%D %ww",
+        no_year_format      = "%M/%D %ww",
+        no_week_format      = "%Y/%M/%D",
+        no_year_week_format = "%M/%D",
+    },
+
+    {
+        id = "custom",
+        label = function() return _("custom") end,
+        full_format         = "",
+        no_year_format      = "",
+        no_week_format      = "",
+        no_year_week_format = "",
+    }
+}
+
+
+-- ---------------------------------------------------------------------------
+-- Custom template: user-defined token order + separators.
+--
+-- Desktop and Stat each get their OWN custom template, stored under
+-- independent settings keys (see CUSTOM_TOKENS_KEY / CUSTOM_SEPS_KEY below),
+-- exactly mirroring how simpleui_date_style_desktop / _stat already keep
+-- the *chosen* style independent per surface.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Custom template token categories.
+--
+-- Each category (year / month / day / week) has 4 selectable variants,
+-- matching the table:
+--
+--     year    | %Y 2026 | %y 26 | %YY 2026 | %yy 26   (YY/yy → locale form)
+--     month   | %M 08   | %m 8  | %MM Aug. | %mm Aug  (MM/mm → locale form)
+--     day     | %D 09   | %d 9  | %DD 09   | %dd 9
+--     week    | %W sun. | %w su | %WW sun. | %ww sun  (WW/ww → locale form)
+--
+-- A slot's stored id is "<category>:<variant>", e.g. "year:YY".
+-- Category is what participates in the position-swap logic; the variant
+-- is a purely cosmetic sub-choice within that category.
+-- ---------------------------------------------------------------------------
+
+M.CUSTOM_TOKEN_CATEGORIES = {
+    {
+        id    = "year",
+        label = function() return _("Year") end,
+        variants = {
+            { id = "Y",  format = "%Y",  label = function() return _("Long num")  end },
+            { id = "y",  format = "%y",  label = function() return _("Short num")    end },
+            { id = "YY", format = "%YY", label = function() return _("Long num (locale)")   end },
+            { id = "yy", format = "%yy", label = function() return _("Short num (locale)")  end },
+        },
+    },
+    {
+        id    = "month",
+        label = function() return _("Month") end,
+        variants = {
+            { id = "M",  format = "%M",  label = function() return _("Long num")    end },
+            { id = "m",  format = "%m",  label = function() return _("Short num")     end },
+            { id = "MM", format = "%MM", label = function() return _("Long num (locale)")       end },
+            { id = "mm", format = "%mm", label = function() return _("Short num (locale)")      end },
+        },
+    },
+    {
+        id    = "day",
+        label = function() return _("Day") end,
+        variants = {
+            { id = "D",  format = "%D",  label = function() return _("Long num")    end },
+            { id = "d",  format = "%d",  label = function() return _("Short num")     end },
+            { id = "DD", format = "%DD", label = function() return _("Long num (locale)")    end },
+            { id = "dd", format = "%dd", label = function() return _("Short num (locale)")     end },
+        },
+    },
+    {
+        id    = "week",
+        label = function() return _("Week") end,
+        variants = {
+            { id = "W",  format = "%W",  label = function() return _("Full")       end },
+            { id = "w",  format = "%w",  label = function() return _("Short")      end },
+            { id = "WW", format = "%WW", label = function() return _("Full (locale)")   end },
+            { id = "ww", format = "%ww", label = function() return _("Short (locale)")  end },
+        },
+    },
+}
+
+local function _categoryById(cat_id)
+    for _, c in ipairs(M.CUSTOM_TOKEN_CATEGORIES) do
+        if c.id == cat_id then return c end
+    end
+    return nil
+end
+
+local function _variantById(cat_id, variant_id)
+    local cat = _categoryById(cat_id)
+    if not cat then return nil end
+    for _, v in ipairs(cat.variants) do
+        if v.id == variant_id then return v end
+    end
+    return nil
+end
+
+-- Splits a stored slot value "category:variant" into its two parts.
+-- Falls back to the category's first variant if the variant part is
+-- missing/invalid (keeps old data, saved before variants existed, working).
+-- A slot's stored value is either "none" (unset) or "<category>:<variant>".
+local NONE_SLOT = "none"
+
+local function _splitSlot(slot_value)
+    if slot_value == nil or slot_value == NONE_SLOT then
+        return nil, nil -- unset
+    end
+    local cat_id, variant_id = slot_value:match("^([^:]+):(.+)$")
+    if not cat_id then
+        cat_id = slot_value -- legacy value with no variant suffix
+    end
+    local cat = _categoryById(cat_id)
+    if not cat then
+        return nil, nil -- unknown category -> treat as unset
+    end
+    if not variant_id or not _variantById(cat_id, variant_id) then
+        variant_id = cat.variants[1].id
+    end
+    return cat_id, variant_id
+end
+
+local function _joinSlot(cat_id, variant_id)
+    if not cat_id then
+        return NONE_SLOT
+    end
+    return cat_id .. ":" .. variant_id
+end
+
+local function _slotFormat(slot_value)
+    local cat_id, variant_id = _splitSlot(slot_value)
+    if not cat_id then
+        return "" -- unset slot contributes nothing
+    end
+    local v = _variantById(cat_id, variant_id)
+    return v and v.format or ""
+end
+
+-- The 3 separator slots (positions 2,4,6 in the UI).
+M.CUSTOM_SEPARATORS = {
+    { id = "space", label = function() return _("Space")     end, value = " " },
+    { id = "dot",   label = function() return _("Dot (.)")   end, value = "." },
+    { id = "dash",  label = function() return _("Dash (-)")  end, value = "-" },
+    { id = "slash", label = function() return _("Slash (/)") end, value = "/" },
+    { id = "comma", label = function() return _("Comma (,)") end, value = "," },
+    { id = "none",  label = function() return _("None")      end, value = "" },
+}
+
+local function _customSepById(sep_id)
+    for _, s in ipairs(M.CUSTOM_SEPARATORS) do
+        if s.id == sep_id then return s end
+    end
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Per-surface (desktop / stat) storage keys and defaults.
+-- ---------------------------------------------------------------------------
+
+local function _normStyleType(style_type)
+    if style_type ~= "desktop" and style_type ~= "stat" then
+        return "desktop"
+    end
+    return style_type
+end
+
+local function _customTokensKey(style_type)
+    return "simpleui_date_style_custom_tokens_" .. _normStyleType(style_type)
+end
+
+local function _customSepsKey(style_type)
+    return "simpleui_date_style_custom_seps_" .. _normStyleType(style_type)
+end
+
+local DEFAULT_CUSTOM_TOKENS = { NONE_SLOT, NONE_SLOT, NONE_SLOT, NONE_SLOT }
+local DEFAULT_CUSTOM_SEPS   = { "space", "space", "space" }
+
+-- ---------------------------------------------------------------------------
+-- Getters / setters, all scoped by style_type ("desktop" | "stat").
+-- ---------------------------------------------------------------------------
+
+function M.getCustomTokens(style_type)
+    style_type = _normStyleType(style_type)
+    local saved = SUISettings:get(_customTokensKey(style_type))
+    if type(saved) == "table" and #saved == 4 then
+        local seen = {}
+        local ok = true
+        for _i, slot in ipairs(saved) do
+            local cat_id = _splitSlot(slot)
+            if cat_id then -- only non-"none" slots must be unique
+                if seen[cat_id] then ok = false; break end
+                seen[cat_id] = true
+            end
+        end
+        if ok then
+            local copy = {}
+            for i, v in ipairs(saved) do copy[i] = v end
+            return copy
+        end
+    end
+    local copy = {}
+    for i, v in ipairs(DEFAULT_CUSTOM_TOKENS) do copy[i] = v end
+    return copy
+end
+
+function M.getCustomSeparators(style_type)
+    style_type = _normStyleType(style_type)
+    local saved = SUISettings:get(_customSepsKey(style_type))
+    if type(saved) == "table" and #saved == 3 then
+        local ok = true
+        for _, id in ipairs(saved) do
+            if not _customSepById(id) then ok = false; break end
+        end
+        if ok then
+            local copy = {}
+            for i, v in ipairs(saved) do copy[i] = v end
+            return copy
+        end
+    end
+    local copy = {}
+    for i, v in ipairs(DEFAULT_CUSTOM_SEPS) do copy[i] = v end
+    return copy
+end
+
+function M.setCustomTokens(style_type, tokens)
+    style_type = _normStyleType(style_type)
+    SUISettings:set(_customTokensKey(style_type), tokens)
+end
+
+function M.setCustomSeparators(style_type, seps)
+    style_type = _normStyleType(style_type)
+    SUISettings:set(_customSepsKey(style_type), seps)
+end
+
+-- Sets a position's category. Pass cat_id = nil to clear the slot back to
+-- "none". Passing a category already used at another position swaps the
+-- two slots (keeps categories unique across the 4 slots, per surface).
+function M.setCustomCategoryAt(style_type, pos, cat_id)
+    style_type = _normStyleType(style_type)
+    local tokens = M.getCustomTokens(style_type)
+    local old_cat, old_variant = _splitSlot(tokens[pos])
+
+    if old_cat == cat_id then
+        return tokens -- no-op
+    end
+
+    if cat_id == nil then
+        tokens[pos] = NONE_SLOT
+        M.setCustomTokens(style_type, tokens)
+        return tokens
+    end
+
+    for i = 1, 4 do
+        if i ~= pos and _splitSlot(tokens[i]) == cat_id then
+            tokens[i] = _joinSlot(old_cat, old_variant) -- may become "none" if old_cat is nil
+            break
+        end
+    end
+    local cat = _categoryById(cat_id)
+    tokens[pos] = _joinSlot(cat_id, cat.variants[1].id)
+    M.setCustomTokens(style_type, tokens)
+    return tokens
+end
+
+-- Sets a position's variant without touching its category or any other
+-- position (within the given style_type).
+function M.setCustomVariantAt(style_type, pos, variant_id)
+    style_type = _normStyleType(style_type)
+    local tokens = M.getCustomTokens(style_type)
+    local cat_id = _splitSlot(tokens[pos])
+    tokens[pos] = _joinSlot(cat_id, variant_id)
+    M.setCustomTokens(style_type, tokens)
+    return tokens
+end
+
+function M.setCustomSeparatorAt(style_type, pos, sep_id)
+    style_type = _normStyleType(style_type)
+    local seps = M.getCustomSeparators(style_type)
+    seps[pos] = sep_id
+    M.setCustomSeparators(style_type, seps)
+    return seps
+end
+
+-- ---------------------------------------------------------------------------
+-- Minimum required categories to enable the custom template, per surface.
+-- ---------------------------------------------------------------------------
+M.CUSTOM_REQUIRED_CATEGORIES = {
+    desktop = { "week", "month", "day" },
+    stat    = { "year", "month", "day" },
+}
+
+-- Returns a set (table keyed by category id -> true) of categories
+-- currently assigned to any of the 4 positions for the given style_type.
+local function _usedCategorySet(style_type)
+    local tokens = M.getCustomTokens(style_type)
+    local used = {}
+    for _i, slot in ipairs(tokens) do
+        local cat_id = _splitSlot(slot)
+        if cat_id then
+            used[cat_id] = true
+        end
+    end
+    return used
+end
+
+-- Checks whether the current custom template for style_type satisfies the
+-- minimum category requirement. Returns:
+--     ok:true              -- requirement met
+--     ok:false, missing:{} -- requirement not met; `missing` lists the
+--                              category ids (in required order) that are
+--                              still unset
+function M.checkCustomTemplateRequirement(style_type)
+    style_type = _normStyleType(style_type)
+    local required = M.CUSTOM_REQUIRED_CATEGORIES[style_type] or {}
+    local used = _usedCategorySet(style_type)
+
+    local missing = {}
+    for _i, cat_id in ipairs(required) do
+        if not used[cat_id] then
+            missing[#missing + 1] = cat_id
+        end
+    end
+
+    return (#missing == 0), missing
+end
+
+
+
+-- ---------------------------------------------------------------------------
+-- Menu builders for editing the custom template (exported so the plugin's
+-- menu tables can embed them directly under the "custom" entry). Every
+-- builder takes style_type so Desktop and Stat edit independent data.
+-- ---------------------------------------------------------------------------
+
+local function _makeVariantMenu(style_type, pos, cat_id)
+    local cat = _categoryById(cat_id)
+    local items = {}
+    for _i, variant in ipairs(cat.variants) do          -- ★ _ → _i
+        local variant_id = variant.id
+        items[#items + 1] = {
+            text_func = function()
+                local preview = M.formatDate(variant.format)
+                return variant.label() .. "  (" .. preview .. ")"
+            end,
+            radio = true,
+            checked_func = function()
+                local _cat, cur_variant = _splitSlot(M.getCustomTokens(style_type)[pos])
+                return cur_variant == variant_id
+            end,
+            callback = function()
+                M.setCustomVariantAt(style_type, pos, variant_id)
+            end,
+        }
+    end
+    return items
+end
+
+
+local function _makeTokenPositionMenu(style_type, pos)
+    local items = {}
+
+    items[#items + 1] = {
+        text = _("(Not set)"),
+        radio = true,
+        checked_func = function()
+            local cat_id = _splitSlot(M.getCustomTokens(style_type)[pos])
+            return cat_id == nil
+        end,
+        callback = function()
+            M.setCustomCategoryAt(style_type, pos, nil)
+        end,
+        separator = true,
+    }
+
+    for _i, cat in ipairs(M.CUSTOM_TOKEN_CATEGORIES) do
+        local cat_id = cat.id
+        items[#items + 1] = {
+            text_func = function() return cat.label() end,
+            enabled_func = function()
+                local tokens = M.getCustomTokens(style_type)
+                local cur_cat = _splitSlot(tokens[pos])
+                if cur_cat == cat_id then return true end
+                for i = 1, 4 do
+                    if i ~= pos and _splitSlot(tokens[i]) == cat_id then
+                        return false
+                    end
+                end
+                return true
+            end,
+            radio = true,
+            checked_func = function()
+                local cur_cat = _splitSlot(M.getCustomTokens(style_type)[pos])
+                return cur_cat == cat_id
+            end,
+            callback = function()
+                M.setCustomCategoryAt(style_type, pos, cat_id)
+            end,
+        }
+    end
+
+    -- If this position currently holds a category, offer a way to pick
+    -- its variant too (separate row, appended after a separator).
+    local cur_cat = _splitSlot(M.getCustomTokens(style_type)[pos])
+    if cur_cat then
+        items[#items].separator = true -- mark end of the category radio block
+        items[#items + 1] = {
+            text_func = function()
+                local tokens = M.getCustomTokens(style_type)
+                local cat_id, variant_id = _splitSlot(tokens[pos])
+                local v = _variantById(cat_id, variant_id)
+                return F_(_("Variant: %s"), v and v.label() or "?")
+            end,
+            sub_item_table_func = function()
+                local tokens = M.getCustomTokens(style_type)
+                local cat_id2 = _splitSlot(tokens[pos])
+                if not cat_id2 then return {} end
+                return _makeVariantMenu(style_type, pos, cat_id2)
+            end,
+        }
+    end
+
+    return items
+end
+
+
+local function _makeTokenPositionEntry(style_type, pos)
+    return {
+        text_func = function()
+            local tokens = M.getCustomTokens(style_type)
+            local cat_id, variant_id = _splitSlot(tokens[pos])
+            if not cat_id then
+                return F_(_("Position %1$d: %2$s"), pos, _("(Not set)"))
+            end
+            local cat = _categoryById(cat_id)
+            local v   = _variantById(cat_id, variant_id)
+            return F_(_("Position %1$d: %2$s (%3$s)"), pos, cat.label(), v.label())
+        end,
+        sub_item_table_func = function()
+            return _makeTokenPositionMenu(style_type, pos)
+        end,
+    }
+end
+
+
+local function _makeSeparatorPositionMenu(style_type, pos)
+    local items = {}
+    for _i, sep in ipairs(M.CUSTOM_SEPARATORS) do        -- ★ _ → _i
+        local sep_id = sep.id
+        items[#items + 1] = {
+            text_func = function() return sep.label() end,
+            radio = true,
+            checked_func = function()
+                return M.getCustomSeparators(style_type)[pos] == sep_id
+            end,
+            callback = function()
+                M.setCustomSeparatorAt(style_type, pos, sep_id)
+            end,
+        }
+    end
+    return {
+        text_func = function()
+            local seps = M.getCustomSeparators(style_type)
+            local s = _customSepById(seps[pos])
+            -- ★ 改用 F_
+            return F_(_("Separator %1$d: %2$s"), pos, s and s.label() or "?")
+        end,
+        sub_item_table = items,
+    }
+end
+
+-- Flat list of 7 editor rows: Position 1, Separator 1, ..., Position 4,
+-- scoped to the given style_type ("desktop" | "stat"). Meant to be spliced
+-- directly into the "custom" entry's sub_item_table.
+function M.makeCustomTemplateSubItems(style_type)
+    style_type = _normStyleType(style_type)
+    return {
+        _makeTokenPositionEntry(style_type, 1),
+        _makeSeparatorPositionMenu(style_type, 1),
+        _makeTokenPositionEntry(style_type, 2),
+        _makeSeparatorPositionMenu(style_type, 2),
+        _makeTokenPositionEntry(style_type, 3),
+        _makeSeparatorPositionMenu(style_type, 3),
+        _makeTokenPositionEntry(style_type, 4),
+    }
+end
+
+-- Build a format string from the token/separator arrays, optionally
+-- excluding some token categories (used to derive the no_year / no_week
+-- variants). Removing a token also removes one adjacent separator so we
+-- don't end up with a dangling "  ," at the edge or a double separator
+-- in the middle.
+local function _buildCustomFormat(tokens, seps, exclude)
+    exclude = exclude or {}
+
+    local seq = {}
+    for i = 1, 4 do
+        seq[#seq + 1] = { kind = "token", slot = tokens[i], cat = _splitSlot(tokens[i]) }
+        if i < 4 then
+            seq[#seq + 1] = { kind = "sep", id = seps[i] }
+        end
+    end
+
+    local i = 1
+    while i <= #seq do
+        local el = seq[i]
+        if el.kind == "token" and exclude[el.cat] then
+            table.remove(seq, i)
+            if seq[i] and seq[i].kind == "sep" then
+                table.remove(seq, i)
+            elseif seq[i - 1] and seq[i - 1].kind == "sep" then
+                table.remove(seq, i - 1)
+                i = i - 1
+            end
+        else
+            i = i + 1
+        end
+    end
+
+    local out = {}
+    for _, el in ipairs(seq) do
+        if el.kind == "token" then
+            out[#out + 1] = _slotFormat(el.slot)
+        else
+            local s = _customSepById(el.id)
+            out[#out + 1] = s and s.value or ""
+        end
+    end
+
+    return table.concat(out)
+end
+
+-- Builds a "live" style object for id == "custom", scoped to style_type,
+-- always reflecting the currently saved tokens/separators for that surface.
+local function _buildCustomStyle(style_type)
+    style_type = _normStyleType(style_type)
+    local tokens = M.getCustomTokens(style_type)
+    local seps   = M.getCustomSeparators(style_type)
+
+    return {
+        id                   = "custom",
+        label                = function() return _("custom") end,
+        full_format          = _buildCustomFormat(tokens, seps, {}),
+        no_year_format       = _buildCustomFormat(tokens, seps, { year = true }),
+        no_week_format       = _buildCustomFormat(tokens, seps, { week = true }),
+        no_year_week_format  = _buildCustomFormat(tokens, seps, { year = true, week = true }),
+    }
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Find date style by ID.
+--
+-- style_type is required to resolve "custom" (each surface has its own
+-- custom template); for all other ids it is ignored.
+-- ---------------------------------------------------------------------------
+local function getDateStyleById(style_id, style_type)
+    if style_id == "custom" then
+        return _buildCustomStyle(style_type)   -- always fresh, per-surface
+    end
+    for _, style in ipairs(M.DATE_STYLES) do
+        if style.id == style_id then
+            return style
+        end
+    end
+    return nil
+end
+
+-- Public wrapper so callers (menu code) can fetch a *live* style object by
+-- id, including "custom" which is generated on the fly from user settings
+-- for the given style_type ("desktop" | "stat").
+function M.getStyleInfo(style_id, style_type)
+    return getDateStyleById(style_id, style_type)
+end
+
+-- ---------------------------------------------------------------------------
+-- Get current date style
+--
+-- style_type:
+--     "desktop"
+--     "stat"
+--
+-- Desktop and Stat use independent settings:
+--
+--     simpleui_date_style_desktop
+--     simpleui_date_style_stat
+-- ---------------------------------------------------------------------------
+
+function M.getDateStyle(style_type)
+
+    style_type = _normStyleType(style_type)
+
+    local key = "simpleui_date_style_" .. style_type
+    local style_id = SUISettings:get(key)
+
+    if style_id and getDateStyleById(style_id, style_type) then
+        return style_id
+    end
+
+    return "default"
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Set current date style
+-- ---------------------------------------------------------------------------
+
+function M.setDateStyle(style_type, style_id)
+
+    if style_type ~= "desktop" and style_type ~= "stat" then
+        return false
+    end
+
+    if not getDateStyleById(style_id, style_type) then
+        return false
+    end
+
+    local key = "simpleui_date_style_" .. style_type
+
+    SUISettings:set(key, style_id)
+
+    return true
+end
+
+
+function M.getDateFormat(style_type, show_week, show_year)
+
+    style_type = _normStyleType(style_type)
+
+    local style_id = M.getDateStyle(style_type)
+    local style = getDateStyleById(style_id, style_type)
+
+    if not style then
+        style = getDateStyleById("default", style_type)
+    end
+
+    if show_week then
+        if show_year == false then
+            return style.no_year_week_format
+        end
+
+        return style.full_format
+    end
+
+    if show_year == false then
+        return style.no_year_format
+    end
+
+    return style.no_week_format
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Get complete style information
+-- ---------------------------------------------------------------------------
+
+function M.getDateStyleInfo(style_type)
+    style_type = _normStyleType(style_type)
+    local style_id = M.getDateStyle(style_type)
+    return getDateStyleById(style_id, style_type)
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Get localized date components
+-- ---------------------------------------------------------------------------
+--
+-- These functions are expected to be defined elsewhere in sui_style.lua.
+--
+-- They should return arrays indexed by Lua's date values:
+--
+--     month: 1 - 12
+--     weekday: 1 - 7
+--
+-- where weekday follows os.date("*t").wday:
+--
+--     1 = Sunday
+--     2 = Monday
+--     ...
+--     7 = Saturday
+--
+-- Example English:
+--
+--     month_full[8] = "August"
+--     month_abbr[8] = "Aug"
+--
+--     week_full[2] = "Monday"
+--     week_abbr[2] = "Mon"
+--
+-- The actual values should come from locale.
+-- ---------------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------------
+-- Format date
+--
+-- Example:
+--
+--     M.formatDate("%MM %D, %Y")
+--         -> August 17, 2026
+--
+--     M.formatDate("%mm %d, %y %ww")
+--         -> Aug 17, 26 Mon
+--
+--     M.formatDate("%M/%D/%Y")
+--         -> 08/17/2026
+--
+--     M.formatDate("%m/%d/%y")
+--         -> 8/17/26
+-- ---------------------------------------------------------------------------
+
+function M.formatDate(format, timestamp)
+
+    if not format then
+        return ""
+    end
+
+    timestamp = timestamp or os.time()
+
+    local t = os.date("*t", timestamp)
+
+    if not t then
+        return ""
+    end
+
+    local year  = t.year
+    local month = t.month
+    local day   = t.day
+    local wday  = t.wday
+
+
+    -- -----------------------------------------------------------------------
+    -- Localized date names
+    -- -----------------------------------------------------------------------
+
+    local month_full = _getDateMonthFull()
+    local month_abbr = _getDateMonthAbbr()
+
+    local week_full = _getDateWeekFull()
+    local week_abbr = _getDateWeekAbbr()
+
+
+    -- -----------------------------------------------------------------------
+    -- Numeric values
+    -- -----------------------------------------------------------------------
+
+    local year_4 = string.format("%04d", year)
+    local year_2 = string.format("%02d", year % 100)
+
+    local month_2 = string.format("%02d", month)
+    local month_1 = tostring(month)
+
+    local day_2 = string.format("%02d", day)
+    local day_1 = tostring(day)
+
+
+    -- -----------------------------------------------------------------------
+    -- Token values
+    -- -----------------------------------------------------------------------
+    local values = {
+
+        -- Year
+        -- %YY / %yy = locale "long form": numeric value run through the
+        -- date_locale_year_format .po template (identity for English,
+        -- "%s年" for zh, etc.); %Y / %y stay plain numbers always.
+        ["%YY"] = _applyLocaleNumberTemplate("date_locale_year_format", year_4),
+        ["%yy"] = _applyLocaleNumberTemplate("date_locale_year_format", year_2),
+
+        ["%Y"] = year_4,
+        ["%y"] = year_2,
+
+
+        -- Month
+        ["%MM"] = month_full[month] or "",
+        ["%mm"] = month_abbr[month] or "",
+
+        ["%M"] = month_2,
+        ["%m"] = month_1,
+
+
+        -- Day
+        -- %DD / %dd = locale "long form" via date_locale_day_format .po
+        -- template (identity for English, "%s日" for zh, etc.); %D / %d
+        -- stay plain numbers always.
+        ["%DD"] = _applyLocaleNumberTemplate("date_locale_day_format", day_2),
+        ["%dd"] = _applyLocaleNumberTemplate("date_locale_day_format", day_1),
+
+        ["%D"] = day_2,
+        ["%d"] = day_1,
+
+
+        -- Weekday
+        ["%WW"] = week_full[wday] or "",
+        ["%ww"] = week_abbr[wday] or "",
+
+        ["%W"] = week_full[wday] or "",
+        ["%w"] = week_abbr[wday] or "",
+}
+
+
+    -- -----------------------------------------------------------------------
+    -- Replace long tokens first.
+    --
+    -- IMPORTANT:
+    --
+    --     %MM contains %M
+    --     %mm contains %m
+    --     %DD contains %D
+    --     %dd contains %d
+    --     %WW contains %W
+    --     %ww contains %w
+    --     %YY contains %Y
+    --     %yy contains %y
+    --
+    -- Therefore long tokens MUST be replaced first.
+    -- -----------------------------------------------------------------------
+
+    format = format:gsub("%%YY", values["%YY"])
+    format = format:gsub("%%yy", values["%yy"])
+
+    format = format:gsub("%%MM", values["%MM"])
+    format = format:gsub("%%mm", values["%mm"])
+
+    format = format:gsub("%%DD", values["%DD"])
+    format = format:gsub("%%dd", values["%dd"])
+
+    format = format:gsub("%%WW", values["%WW"])
+    format = format:gsub("%%ww", values["%ww"])
+
+
+    -- -----------------------------------------------------------------------
+    -- Replace short tokens
+    -- -----------------------------------------------------------------------
+
+    format = format:gsub("%%Y", values["%Y"])
+    format = format:gsub("%%y", values["%y"])
+
+    format = format:gsub("%%M", values["%M"])
+    format = format:gsub("%%m", values["%m"])
+
+    format = format:gsub("%%D", values["%D"])
+    format = format:gsub("%%d", values["%d"])
+
+    format = format:gsub("%%W", values["%W"])
+    format = format:gsub("%%w", values["%w"])
+
+
+    return format
+end
+
+
+-- ---------------------------------------------------------------------------
+-- Build date style selector
+-- ---------------------------------------------------------------------------
+local function makeDateStyleSelector(style_type, title)
+    -- Desktop shows the date without the year (e.g. homescreen clock,
+    -- where the year is rarely useful); Stat shows the date without the
+    -- weekday (e.g. reading-stats rows, where weekday adds little value).
+    local function _previewFormat(live)
+        if style_type == "stat" then
+            return live.no_week_format
+        end
+        return live.no_year_format
+    end
+
+    local items = {}
+    for i, style in ipairs(M.DATE_STYLES) do
+        local style_id = style.id
+
+        if style_id == "custom" then
+            -- ── Custom: tap-in submenu (apply toggle + per-surface editor) ──
+            items[#items + 1] = {
+                text_func = function()
+                    local live = getDateStyleById("custom", style_type)
+                    local preview = M.formatDate(_previewFormat(live))
+                    local mark = (M.getDateStyle(style_type) == "custom")
+                        and "  \u{2713}" or ""
+                    return live.label() .. "  (" .. preview .. ")" .. mark
+                end,
+
+                sub_item_table_func = function()
+                    local sub = {}
+
+                    sub[#sub + 1] = {
+                        text_func = function()
+                            local ok = M.checkCustomTemplateRequirement(style_type)
+                            return ok and _("Use this style") or (_("Use this style") .. "  \u{26A0}")
+                        end,
+                        radio = true,
+                        checked_func = function()
+                            return M.getDateStyle(style_type) == "custom"
+                        end,
+                        callback = function()
+                            local ok, missing = M.checkCustomTemplateRequirement(style_type)
+                            if not ok then
+                                local names = {}
+                                for _i, cat_id in ipairs(missing) do
+                                    local cat = _categoryById(cat_id)
+                                    names[#names + 1] = cat and cat.label() or cat_id
+                                end
+                                local ok_ui, InfoMessage = pcall(require, "ui/widget/infomessage")
+                                local ok_um, UIManager   = pcall(require, "ui/uimanager")
+                                if ok_ui and ok_um then
+                                    UIManager:show(InfoMessage:new{
+                                        text = F_(
+                                            _("Custom template needs: %s"),
+                                            table.concat(names, ", ")
+                                        ),
+                                        timeout = 3,
+                                    })
+                                end
+                                return -- do not apply
+                            end
+                            M.setDateStyle(style_type, "custom")
+                        end,
+                        separator = true,
+                    }
+
+                    for _i, it in ipairs(M.makeCustomTemplateSubItems(style_type)) do
+                        sub[#sub + 1] = it
+                    end
+
+                    return sub
+                end,
+            }
+        else
+            items[#items + 1] = {
+                text_func = function()
+                    -- Always re-fetch, so previews stay accurate.
+                    local live = getDateStyleById(style_id, style_type) or style
+                    local preview = M.formatDate(_previewFormat(live))
+                    return live.label() .. "  (" .. preview .. ")"
+                end,
+
+                radio = true,
+                checked_func = function()
+                    return M.getDateStyle(style_type) == style_id
+                end,
+                callback = function()
+                    M.setDateStyle(style_type, style_id)
+                end,
+            }
+        end
+    end
+
+    return {
+        text = title,
+        sub_item_table = items,
+    }
+end
+
+-- ---------------------------------------------------------------------------
+-- Build Date Style menu
+-- ---------------------------------------------------------------------------
+
+function M.makeDateStyleMenuItems()
+
+    return {
+        makeDateStyleSelector(
+            "desktop",
+            _("Desktop Date Style")
+        ),
+
+        makeDateStyleSelector(
+            "stat",
+            _("Stat Date Style")
+        ),
+    }
 end
 
 return M

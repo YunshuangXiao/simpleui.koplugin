@@ -18,8 +18,9 @@ local UIManager       = require("ui/uimanager")
 local VerticalGroup   = require("ui/widget/verticalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
-local _ = require("sui_i18n").translate
-local N_ = require("sui_i18n").ngettext
+local _               = require("sui_i18n").translate
+local N_              = require("sui_i18n").ngettext
+local F_              = require("sui_i18n").format
 local logger          = require("logger")
 local Config          = require("sui_config")
 
@@ -385,7 +386,7 @@ local function showAnnualGoalDialog(on_confirm)
     local SpinWidget = require("ui/widget/spinwidget")
     UIManager:show(SpinWidget:new{
         title_text  = _("Annual Reading Goal"),
-        info_text   = string.format(_("Books to read in %s:"), _getYearStr()),
+        info_text   = F_(_("Books to read in %s:"), _getYearStr()),
         value       = (function() local g = getAnnualGoal(); return g > 0 and g or 12 end)(),
         value_min   = 0, value_max = 365, value_step = 1,
         ok_text     = _("Save"), cancel_text = _("Cancel"),
@@ -844,8 +845,8 @@ function M.getMenuItems(ctx_menu)
                     text_func = function()
                         local g = getAnnualGoal()
                         return g > 0
-                            and string.format(N_lc("  Set Goal  (%d book in %s)", "  Set Goal  (%d books in %s)", g), g, _getYearStr())
-                            or  string.format(_lc("  Set Goal  (%s)"), _getYearStr())
+                            and F_(N_lc("  Set Goal  (%d book in %s)", "  Set Goal  (%d books in %s)", g), g, _getYearStr())
+                            or  F_(_lc("  Set Goal  (%s)"), _getYearStr())
                     end,
                     keep_menu_open = true,
                     callback = function() showAnnualGoalDialog(refresh) end,
@@ -949,7 +950,7 @@ function M.getMenuItems(ctx_menu)
                                     if k == "annual" and showAnnual() then
                                         local g = getAnnualGoal()
                                         local subtitle = g > 0
-                                            and string.format(N_lc("%d book in %s", "%d books in %s", g), g, _getYearStr())
+                                            and F_(N_lc("%d book in %s", "%d books in %s", g), g, _getYearStr())
                                             or  _lc("Not set")
                                         sort_items[#sort_items+1] = {
                                             text       = _lc("Annual Goal"),
@@ -1026,8 +1027,8 @@ function M.getMenuItems(ctx_menu)
             text_func = function()
                 local p = getAnnualPhysical()
                 return p > 0
-                    and string.format(N_lc("Manually Tracked Books  (%d in %s)", "Manually Tracked Books  (%d in %s)", p), p, _getYearStr())
-                    or  string.format(_lc("Manually Tracked Books  (%s)"), _getYearStr())
+                    and F_(N_lc("Manually Tracked Books  (%d in %s)", "Manually Tracked Books  (%d in %s)", p), p, _getYearStr())
+                    or  F_(_lc("Manually Tracked Books  (%s)"), _getYearStr())
             end,
             keep_menu_open = true,
             callback = function() showAnnualPhysicalDialog(refresh) end,
@@ -1035,7 +1036,7 @@ function M.getMenuItems(ctx_menu)
                 local SUIWindow = require("sui_window")
                 local p = getAnnualPhysical()
                 local right = p > 0
-                    and string.format(N_lc("%d in %s", "%d in %s", p), p, _getYearStr())
+                    and F_(N_lc("%d in %s", "%d in %s", p), p, _getYearStr())
                     or  _getYearStr()
                 return SUIWindow.ListRow{
                     inner_w     = ctx.inner_w,

@@ -290,9 +290,56 @@ local function reset()
     logger.info("simpleui i18n: translation cache cleared")
 end
 
+-- ---------------------------------------------------------------------------
+-- format() — format translated strings with optional positional arguments.
+--
+-- Normal:
+--   format("%d books", 5)
+--
+-- Positional:
+--   format("%2$s年已读%1$d本书", 5, "2026")
+--   → "2026年已读5本书"
+--
+-- Lua string.format() itself does not support positional arguments.
+-- ---------------------------------------------------------------------------
+
+local function format(fmt, ...)
+    if not fmt then
+        return ""
+    end
+
+    local args = {...}
+
+    -- No positional placeholders: use normal string.format().
+    if not fmt:find("%%%d+%$") then
+        return string.format(fmt, ...)
+    end
+
+    local ordered = {}
+
+    -- Convert:
+    --
+    --   %1$d → %d
+    --   %2$s → %s
+    --   %3$f → %f
+    --
+    -- while rebuilding the argument list according to the order
+    -- used in the translated string.
+    fmt = fmt:gsub("%%(%d+)%$([cdeEfgGiouxXsq])", function(index, spec)
+        index = tonumber(index)
+
+        ordered[#ordered + 1] = args[index]
+
+        return "%" .. spec
+    end)
+
+    return string.format(fmt, table.unpack(ordered))
+end
+
 return {
     translate = translate,
     ngettext  = ngettext,
+    format    = format,
     getLang   = detectLang,
     reset     = reset,
 }

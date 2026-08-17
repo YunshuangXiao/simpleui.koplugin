@@ -928,21 +928,6 @@ msgstr "完成日期"
 msgid "Date started"
 msgstr "开始日期"
 
-#: desktop_modules/module_clock.lua:68 desktop_modules/module_clock.lua:71
-msgid "today_format"
-msgstr "%M%D日 %W"
-
-#: sui_stats_windows.lua:1842 sui_stats_windows.lua:1845
-msgid "date_format"
-msgstr "%Y年%m月%d日"
-
-#: sui_stats_windows.lua:472
-msgid "range_format"
-msgstr "%Y年%M%D日"
-
-msgid "range_format_no_year"
-msgstr "%M%D日"
-
 #: sui_stats_windows.lua:950 sui_stats_windows.lua:3675
 msgid "Days"
 msgstr "天"
@@ -4138,8 +4123,8 @@ msgstr[1] "  （剩余 %s）"
 #: desktop_modules/module_reading_goals.lua:847
 msgid "  Set Goal  (%d book in %s)"
 msgid_plural "  Set Goal  (%d books in %s)"
-msgstr[0] "  设置目标（%s 年读 %d 本书）"
-msgstr[1] "  设置目标（%s 年读 %d 本书）"
+msgstr[0] "  设置目标（%2$s 年读 %1$d 本书）"
+msgstr[1] "  设置目标（%2$s 年读 %1$d 本书）"
 
 #: desktop_modules/module_reading_goals.lua:472
 msgid "%d book"
@@ -4150,14 +4135,14 @@ msgstr[1] "%d 本书"
 #: desktop_modules/module_reading_goals.lua:952
 msgid "%d book in %s"
 msgid_plural "%d books in %s"
-msgstr[0] "%s 年 %d 本书"
-msgstr[1] "%s 年 %d 本书"
+msgstr[0] "%2$s 年 %1$d 本书"
+msgstr[1] "%2$s 年 %1$d 本书"
 
 #: sui_stats_windows.lua:1291
 msgid "%d book read in %s"
 msgid_plural "%d books read in %s"
-msgstr[0] "%s 年已读 %d 本书"
-msgstr[1] "%s 年已读 %d 本书"
+msgstr[0] "%2$s年已读%1$d本书"
+msgstr[1] "%2$s年已读%1$d本书"
 
 #: sui_stats_windows.lua:2170 sui_stats_windows.lua:2172
 msgid "%d day"
@@ -4183,8 +4168,8 @@ msgstr[1] "%d 次冻结可用"
 #: desktop_modules/module_reading_goals.lua:1038
 msgid "%d in %s"
 msgid_plural "%d in %s"
-msgstr[0] "%s 年 %d 本"
-msgstr[1] "%s 年 %d 本"
+msgstr[0] "%2$s 年 %1$d 本"
+msgstr[1] "%2$s 年 %1$d 本"
 
 #: sui_quickactions.lua:1388 sui_quickactions.lua:2664
 #: sui_quickactions.lua:2685
@@ -4222,8 +4207,8 @@ msgstr[1] "分组（%d 个项目）"
 #: desktop_modules/module_reading_goals.lua:1029
 msgid "Manually Tracked Books  (%d in %s)"
 msgid_plural "Manually Tracked Books  (%d in %s)"
-msgstr[0] "手动导入的书籍（%s 年 %d 本）"
-msgstr[1] "手动导入的书籍（%s 年 %d 本）"
+msgstr[0] "手动导入的书籍（%2$s 年 %1$d 本）"
+msgstr[1] "手动导入的书籍（%2$s 年 %1$d 本）"
 
 #: sui_quicksettings_bar.lua:1158
 msgid "Maximum of %d slot reached. Remove one first."
@@ -4388,39 +4373,39 @@ msgstr "12月"
 
 #: sui_stats_windows.lua:1433
 msgid "january"
-msgstr "1月"
+msgstr "01月"
 
 #: sui_stats_windows.lua:1433
 msgid "february"
-msgstr "2月"
+msgstr "02月"
 
 #: sui_stats_windows.lua:1433
 msgid "march"
-msgstr "3月"
+msgstr "03月"
 
 #: sui_stats_windows.lua:1433
 msgid "april"
-msgstr "4月"
+msgstr "04月"
 
 #: sui_stats_windows.lua:1433
 msgid "may"
-msgstr "5月"
+msgstr "05月"
 
 #: sui_stats_windows.lua:1433
 msgid "june"
-msgstr "6月"
+msgstr "06月"
 
 #: sui_stats_windows.lua:1434
 msgid "july"
-msgstr "7月"
+msgstr "07月"
 
 #: sui_stats_windows.lua:1434
 msgid "august"
-msgstr "8月"
+msgstr "08月"
 
 #: sui_stats_windows.lua:1434
 msgid "september"
-msgstr "9月"
+msgstr "09月"
 
 #: sui_stats_windows.lua:1434
 msgid "october"
@@ -4436,39 +4421,39 @@ msgstr "12月"
 
 #: sui_stats_windows.lua:2835
 msgid "January"
-msgstr "1月"
+msgstr "01月"
 
 #: sui_stats_windows.lua:2835
 msgid "February"
-msgstr "2月"
+msgstr "02月"
 
 #: sui_stats_windows.lua:2835
 msgid "March"
-msgstr "3月"
+msgstr "03月"
 
 #: sui_stats_windows.lua:2835
 msgid "April"
-msgstr "4月"
+msgstr "04月"
 
 #: sui_stats_windows.lua:2836
 msgid "May"
-msgstr "5月"
+msgstr "05月"
 
 #: sui_stats_windows.lua:2836
 msgid "June"
-msgstr "6月"
+msgstr "06月"
 
 #: sui_stats_windows.lua:2836
 msgid "July"
-msgstr "7月"
+msgstr "07月"
 
 #: sui_stats_windows.lua:2836
 msgid "August"
-msgstr "8月"
+msgstr "08月"
 
 #: sui_stats_windows.lua:2837
 msgid "September"
-msgstr "9月"
+msgstr "09月"
 
 #: sui_stats_windows.lua:2837
 msgid "October"
@@ -4601,3 +4586,133 @@ msgstr "四十"
 #: desktop_modules/module_clock.lua:227 desktop_modules/module_clock.lua:265
 msgid "Fifty"
 msgstr "五十"
+
+
+#: desktop_modules/module_clock.lua:68 desktop_modules/module_clock.lua:71
+msgid "today_format"
+msgstr "%M%D日 %W"
+
+#: sui_stats_windows.lua:1842 sui_stats_windows.lua:1845
+msgid "date_format"
+msgstr "%Y年%m月%d日"
+
+#: sui_stats_windows.lua:472
+msgid "range_format"
+msgstr "%Y年%M%D日"
+
+msgid "range_format_no_year"
+msgstr "%M%D日"
+
+#: sui_menu
+msgid "Date Style"
+msgstr "日期风格"
+
+msgid "Desktop Date Style"
+msgstr "桌面日期"
+
+msgid "Stat Date Style"
+msgstr "统计数据日期"
+
+msgid "Using system default date format"
+msgstr "使用默认日期风格"
+
+#: sui_style:DATE_STYLES
+msgid "date_locale_year_format"
+msgstr "%s年"
+
+msgid "date_locale_day_format"
+msgstr "%s日"
+
+msgid "iso"
+msgstr "ISO"
+
+msgid "cn"
+msgstr "中国"
+
+msgid "us"
+msgstr "美国"
+
+msgid "uk_eu"
+msgstr "英国/欧洲"
+
+msgid "slash"
+msgstr "斜杠"
+
+msgid "short"
+msgstr "短日期"
+
+#: sui_style
+msgid "Use this style"
+msgstr "使用此样式"
+
+msgid "Position %1$d: %2$s (%3$s)"
+msgstr "位置%1$d：%2$s（%3$s）"
+
+msgid "Separator %1$d: %2$s"
+msgstr "分隔符%1$d：%2$s"
+
+msgid "Year"
+msgstr "年"
+
+msgid "Month"
+msgstr "月"
+
+msgid "Day"
+msgstr "日"
+
+msgid "Week"
+msgstr "周"
+
+msgid "Long num"
+msgstr "长数字"
+
+msgid "Long num (locale)"
+msgstr "长数字(本地化)"
+
+msgid "Short num"
+msgstr "短数字"
+
+msgid "Short num (locale)"
+msgstr "短数字(本地化)"
+
+msgid "Full"
+msgstr "全称"
+
+msgid "Full (locale)"
+msgstr "全称(本地化)"
+
+msgid "Short"
+msgstr "缩写"
+
+msgid "Short (locale)"
+msgstr "缩写(本地化)"
+
+msgid "Space"
+msgstr "空格"
+
+msgid "Dot (.)"
+msgstr "点（.）"
+
+msgid "Dash (-)"
+msgstr "短横线（-）"
+
+msgid "Slash (/)"
+msgstr "斜杠（/）"
+
+msgid "Comma (,)"
+msgstr "逗号（,）"
+
+msgid "None"
+msgstr "无"
+
+msgid "(Not set)"
+msgstr "（未设置）"
+
+msgid "Position %1$d: %2$s"
+msgstr "位置%1$d：%2$s"
+
+msgid "Variant: %s"
+msgstr "变体：%s"
+
+msgid "Custom template needs: %s"
+msgstr "自定义模板需要包含：%s"

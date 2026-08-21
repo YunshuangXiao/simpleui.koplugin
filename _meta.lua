@@ -1,9 +1,9 @@
-local _ = require("sui_i18n").translate
+local _ = require("infra/sui_i18n").translate
 
 return {
     name        = "simpleui",
     fullname    = _("Simple UI"),
     description = _([[A simple UI for KOReader]]),
-    version     = "2.1.1",
+    version     = "2.5.0",
     author      = "Doctor Hetfield",
 }

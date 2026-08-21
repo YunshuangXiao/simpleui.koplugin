@@ -10,16 +10,16 @@ local Dispatcher      = require("dispatcher")
 -- Each simpleui module captures its own local translation proxy from sui_i18n.
 -- The native package.loaded["gettext"] is never wrapped or replaced, which
 -- prevents state-mutation conflicts with other plugins (e.g. zlibrary).
-local I18n = require("sui_i18n")
+local I18n = require("infra/sui_i18n")
 local _    = I18n.translate
 
-local Config       = require("sui_config")
-local UI           = require("sui_core")
-local Bottombar    = require("sui_bottombar")
-local Topbar       = require("sui_topbar")
-local QSBar        = require("sui_quicksettings_bar")
-local Patches      = require("sui_patches")
-local SUISettings  = require("sui_store")
+local Config       = require("infra/sui_config")
+local UI           = require("infra/sui_core")
+local Bottombar    = require("screens/sui_bottombar")
+local Topbar       = require("screens/sui_topbar")
+local QSBar        = require("screens/sui_quicksettings_bar")
+local Patches      = require("infra/sui_patches")
+local SUISettings  = require("infra/sui_store")
 
 -- ---------------------------------------------------------------------------
 -- ReaderStatistics class-table accessor
@@ -96,6 +96,29 @@ local SimpleUIPlugin = WidgetContainer:new{
 -- ---------------------------------------------------------------------------
 
 function SimpleUIPlugin:init()
+    -- Re-register the "open custom screen" Quick Action for every persisted
+    -- Custom Screen. QA.register() only writes to an in-memory table inside
+    -- features/sui_quickactions.lua, so it does not survive a KOReader
+    -- restart on its own — this has to run again on every plugin init.
+    --
+    -- MUST run before the big init pcall below: that pcall builds the
+    -- bottom bar, which calls Config.loadTabConfig(). loadTabConfig()
+    -- validates every persisted tab id via QA.isRegistered() and memoizes
+    -- the filtered result for the rest of the session — so if a Custom
+    -- Screen's QA isn't registered yet at that first call, its tab is
+    -- logged as "unknown" and dropped from the cache for good until the
+    -- next restart. Registering here first, and invalidating the tabs
+    -- cache afterwards as a safety net, guarantees loadTabConfig() always
+    -- sees it. Isolated in its own pcall so a bug here can never take down
+    -- the rest of plugin init.
+    local ok_cs, err_cs = pcall(function()
+        require("infra/sui_custom_screens").registerAllQuickActions()
+        require("infra/sui_config").invalidateTabsCache()
+    end)
+    if not ok_cs then
+        logger.err("simpleui: custom screens QA registration failed:", tostring(err_cs))
+    end
+
     local ok, err = pcall(function()
         -- Ensure the simpleui settings directory tree exists before any
         -- SUISettings call.  SUISettings is lazy — its LuaSettings store is
@@ -155,7 +178,7 @@ function SimpleUIPlugin:init()
                     "— restart recommended")
                 UIManager:scheduleIn(1, function()
                     local InfoMessage = require("ui/widget/infomessage")
-                    local _t = require("sui_i18n").translate
+                    local _t = require("infra/sui_i18n").translate
                     UIManager:show(InfoMessage:new{
                         text = string.format(
                             _t("Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."),
@@ -233,11 +256,11 @@ function SimpleUIPlugin:init()
                                     data_dir    .. "/sui_icons")
                     removeDirIfEmpty(plugin_root .. "/icons/custom")
 
-                    -- desktop_modules/custom_quotes → DataStorage/simpleui/sui_quotes/
+                    -- modules/custom_quotes → DataStorage/simpleui/sui_quotes/
                     -- then remove the now-redundant in-plugin directory.
-                    copyDirContents(plugin_root .. "/desktop_modules/custom_quotes",
+                    copyDirContents(plugin_root .. "/modules/custom_quotes",
                                     data_dir    .. "/sui_quotes")
-                    removeDirIfEmpty(plugin_root .. "/desktop_modules/custom_quotes")
+                    removeDirIfEmpty(plugin_root .. "/modules/custom_quotes")
                 end
 
                 -- ── 2. Migrate renamed settings keys ──────────────────────
@@ -852,7 +875,7 @@ function SimpleUIPlugin:init()
         -- SUIStyle is lazy (module-level init runs only when the font menu opens)
         -- so this pcall is cheap on the common path where no custom font is set.
         do
-            local ok_ss, SUIStyle = pcall(require, "sui_style")
+            local ok_ss, SUIStyle = pcall(require, "features/sui_style")
             if ok_ss and SUIStyle and SUIStyle.applyUIFont then
                 pcall(SUIStyle.applyUIFont)
             end
@@ -893,6 +916,12 @@ function SimpleUIPlugin:init()
         title    = _("Simple UI: Recent"),
         general  = true,
     })
+    Dispatcher:registerAction("simpleui_navbar_window", {
+        category = "none",
+        event    = "SimpleUINavbarWindow",
+        title    = _("Simple UI: Navigation Bar"),
+        general  = true,
+    })
 
 
         -- -------------------------------------------------------------------
@@ -902,13 +931,13 @@ function SimpleUIPlugin:init()
         -- has never been set to "homescreen_simpleui", so isStartWithHS()
         -- would return false and the FM would open directly, bypassing the
         -- homescreen entirely — meaning the onboarding window (which is
-        -- triggered inside Homescreen.show()) would never appear either.
+        -- triggered inside ScreenEngine.show()) would never appear either.
         --
         -- Fix: write start_with HERE, before Patches.installAll, so that
         -- isStartWithHS() (lazily cached on first read in sui_patches.lua)
         -- already sees the correct value when the setupLayout patch runs and
         -- sets _hs_autoopen_pending = true.  From that point on, the normal
-        -- onShow → Homescreen.show() → Onboarding.show() chain handles
+        -- onShow → ScreenEngine.show() → Onboarding.show() chain handles
         -- everything — no additional scheduling needed here.
         -- -------------------------------------------------------------------
         local _sui_first_run = not SUISettings:get("simpleui_onboarding_done")
@@ -927,7 +956,7 @@ function SimpleUIPlugin:init()
             UIManager:scheduleIn(0, function()
                 local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
                 if not (ok_fm and FM and FM.instance) then return end
-                local ok_tbr, TBR = pcall(require, "desktop_modules/module_tbr")
+                local ok_tbr, TBR = pcall(require, "modules/module_tbr")
                 if not (ok_tbr and TBR) then return end
 
                 -- Shared button factory: generates the TBR button for a given file.
@@ -948,8 +977,8 @@ function SimpleUIPlugin:init()
                 -- After toggling TBR, close the dialog and refresh the file list,
                 -- matching the same behaviour as "On Hold", "Reading", etc.
                 -- Note: file_dialog is a property of file_chooser, not FM.instance.
-                FM.instance:addFileDialogButtons("sui_tbr", function(file, is_file, book_props)
-                    local close_refresh = function()
+                FM.instance:addFileDialogButtons("sui_tbr", function(file, is_file, book_props, close_cb)
+                    local close_refresh = close_cb or function()
                         local fc = FM.instance and FM.instance.file_chooser
                         local dlg = fc and fc.file_dialog
                         if dlg then UIManager:close(dlg) end
@@ -1035,7 +1064,7 @@ function SimpleUIPlugin:init()
             UIManager:scheduleIn(0, function()
                 local ok_fm2, FM2 = pcall(require, "apps/filemanager/filemanager")
                 if not (ok_fm2 and FM2 and FM2.instance) then return end
-                local ok_bm, BM = pcall(require, "sui_browsemeta")
+                local ok_bm, BM = pcall(require, "features/library/sui_library_browse")
                 if not (ok_bm and BM) then return end
 
                 -- Shared factory: returns a button row or nil.
@@ -1066,8 +1095,8 @@ function SimpleUIPlugin:init()
                 end
 
                 -- 1. Library browser (FileManager.showFileDialog).
-                FM2.instance:addFileDialogButtons("sui_browse_author", function(file, is_file, book_props)
-                    local close_nav = function()
+                FM2.instance:addFileDialogButtons("sui_browse_author", function(file, is_file, book_props, close_cb)
+                    local close_nav = close_cb or function()
                         local fc2 = FM2.instance and FM2.instance.file_chooser
                         local dlg = fc2 and fc2.file_dialog
                         if dlg then UIManager:close(dlg) end
@@ -1110,7 +1139,7 @@ function SimpleUIPlugin:init()
                         text = _("Book statistics"),
                         callback = function()
                             if close_cb then close_cb() end
-                            local ok_sw, SW = pcall(require, "sui_stats_windows")
+                            local ok_sw, SW = pcall(require, "screens/sui_stats_windows")
                             if ok_sw and SW then
                                 if SW.showLoadingNotice then SW.showLoadingNotice() end
                                 SW.showBookStatsFromFile(file)
@@ -1120,13 +1149,13 @@ function SimpleUIPlugin:init()
                 end
 
                 -- 1. Library browser (FileManager.showFileDialog).
-                FM3.instance:addFileDialogButtons("sui_book_stats", function(file, is_file, book_props)
-                    local close_cb = function()
+                FM3.instance:addFileDialogButtons("sui_book_stats", function(file, is_file, book_props, close_cb)
+                    local close_it = close_cb or function()
                         local fc3 = FM3.instance and FM3.instance.file_chooser
                         local dlg = fc3 and fc3.file_dialog
                         if dlg then UIManager:close(dlg) end
                     end
-                    return _makeBookStatsRow(file, is_file, book_props, close_cb)
+                    return _makeBookStatsRow(file, is_file, book_props, close_it)
                 end)
 
                 -- 2. Search results (FileSearcher.onMenuHold).
@@ -1156,21 +1185,21 @@ function SimpleUIPlugin:init()
             -- module_*.lua files — they land in package.loaded and subsequent
             -- require() calls are free table lookups, not disk I/O.
             UIManager:scheduleIn(2, function()
-                local ok, reg = pcall(require, "desktop_modules/moduleregistry")
+                local ok, reg = pcall(require, "modules/moduleregistry")
                 if ok and reg then pcall(reg.list) end
             end)
             -- Silent automatic update check — 24 h throttle.
             -- scheduleIn(3) ensures it runs after the first paint is stable
             -- and does not compete with the module preload above.
             UIManager:scheduleIn(3, function()
-                local ok, Updater = pcall(require, "sui_updater")
+                local ok, Updater = pcall(require, "infra/sui_updater")
                 if ok and Updater then Updater.scheduleAutoCheck() end
             end)
             -- Patch ReaderStatistics:onSyncBookStats to close the SimpleUI
             -- stats connection before every sync, including syncs triggered
-            -- from inside the Reader (where HomescreenWidget is not on the
+            -- from inside the Reader (where ScreenWidget is not on the
             -- UIManager stack and therefore cannot handle the event itself).
-            -- The HomescreenWidget:onSyncBookStats handler covers the common
+            -- The ScreenWidget:onSyncBookStats handler covers the common
             -- case; this patch is the safety net for the remaining paths
             -- (Reader menu → "Synchronize now", interval-based auto-sync).
             -- We apply it unconditionally at init time — no scheduleIn needed
@@ -1184,48 +1213,60 @@ function SimpleUIPlugin:init()
                     RS._sui_orig_onSyncBookStats = orig_onSyncBookStats
                     RS._sui_sync_patched         = true
                     RS.onSyncBookStats = function(self_rs, ...)
-                        -- Close the HomescreenWidget DB connection synchronously,
+                        -- Close every live screen's DB connection synchronously,
                         -- before ReaderStatistics defers the actual sync to nextTick.
-                        -- Homescreen._instance is the singleton ref used everywhere
-                        -- in sui_homescreen.lua — no UIManager stack walk needed.
-                        local hs = Homescreen and Homescreen._instance
-                        if hs then
-                            if hs._db_conn then
-                                pcall(function() hs._db_conn:close() end)
-                                hs._db_conn = nil
-                            end
-                            -- Guard prevents _buildCtx from reopening the connection
-                            -- during the window between this call and the nextTick
-                            -- sync.  Cleared two ticks later (after sync completes).
-                            --
-                            -- FIX: mirror the _db_sync_guard stuck-forever fix that was
-                            -- already applied to HomescreenWidget:onSyncBookStats.
-                            -- The original code gated the entire tick callback on
-                            --   Homescreen._instance == hs_ref
-                            -- If the homescreen instance was replaced between the guard
-                            -- being set and the tick firing (e.g. a tab switch during a
-                            -- Kobo sync cycle), the guard was never cleared on hs_ref and
-                            -- _buildCtx would never reopen the DB for the rest of the
-                            -- session.  Fix: always clear the guard on hs_ref; only gate
-                            -- _refresh() on the instance still being the current one.
-                            -- scheduleIn(10) is a safety-net for the edge case where tick
-                            -- callbacks are never invoked (UIManager teardown, hot reload).
-                            hs._db_sync_guard = true
-                            local hs_ref = hs
-                            local cleared = false
-                            local function clearGuard()
-                                if cleared then return end
-                                cleared = true
-                                hs_ref._db_sync_guard = false
-                                hs_ref._ctx_cache     = nil
-                                if Homescreen._instance == hs_ref then
-                                    hs_ref:_refresh(false)
+                        -- ScreenEngine.liveScreenIds() covers the built-in Homescreen
+                        -- and any Custom Screen left open — a stats/currently-reading
+                        -- module can be enabled on either, and each screen keeps its
+                        -- own _db_conn (see ScreenWidget:_buildCtx in
+                        -- engines/sui_screen_engine.lua), so this must not be
+                        -- hardcoded to the Homescreen alone.
+                        local ScreenEngine = package.loaded["engines/sui_screen_engine"]
+                        if ScreenEngine then
+                            for _, id in ipairs(ScreenEngine.liveScreenIds()) do
+                                local screen = ScreenEngine.getInstance(id)
+                                if screen then
+                                    if screen._db_conn then
+                                        pcall(function() screen._db_conn:close() end)
+                                        screen._db_conn = nil
+                                    end
+                                    -- Guard prevents _buildCtx from reopening the connection
+                                    -- during the window between this call and the nextTick
+                                    -- sync.  Cleared two ticks later (after sync completes).
+                                    --
+                                    -- FIX: mirror the _db_sync_guard stuck-forever fix that was
+                                    -- already applied to ScreenWidget:onSyncBookStats.
+                                    -- The original code gated the entire tick callback on
+                                    --   HS._instance == hs_ref
+                                    -- If the screen instance was replaced between the guard
+                                    -- being set and the tick firing (e.g. a tab switch during a
+                                    -- Kobo sync cycle), the guard was never cleared on the
+                                    -- original instance and _buildCtx would never reopen the
+                                    -- DB for the rest of the session.  Fix: always clear the
+                                    -- guard on the original instance; only gate _refresh() on
+                                    -- that same id still being the live one.
+                                    -- scheduleIn(10) is a safety-net for the edge case where
+                                    -- tick callbacks are never invoked (UIManager teardown,
+                                    -- hot reload).
+                                    screen._db_sync_guard = true
+                                    local screen_ref = screen
+                                    local screen_id  = id
+                                    local cleared = false
+                                    local function clearGuard()
+                                        if cleared then return end
+                                        cleared = true
+                                        screen_ref._db_sync_guard = false
+                                        screen_ref._ctx_cache     = nil
+                                        if ScreenEngine.getInstance(screen_id) == screen_ref then
+                                            screen_ref:_refresh(false)
+                                        end
+                                    end
+                                    UIManager:tickAfterNext(function()
+                                        UIManager:nextTick(clearGuard)
+                                    end)
+                                    UIManager:scheduleIn(10, clearGuard)
                                 end
                             end
-                            UIManager:tickAfterNext(function()
-                                UIManager:nextTick(clearGuard)
-                            end)
-                            UIManager:scheduleIn(10, clearGuard)
                         end
                         return orig_onSyncBookStats(self_rs, ...)
                     end
@@ -1242,27 +1283,35 @@ end
 -- without restarting KOReader) always loads fresh code.
 -- ---------------------------------------------------------------------------
 local _PLUGIN_MODULES = {
-    "sui_i18n", "sui_config", "sui_core", "sui_bottombar", "sui_topbar",
-    "sui_patches", "sui_menu", "sui_titlebar", "sui_quickactions",
-    "sui_homescreen", "sui_foldercovers", "sui_browsemeta", "sui_updater",
-    "sui_store", "sui_presets", "sui_style",
-    "sui_settings_window",
-    "sui_quicksettings_bar",
-    "desktop_modules/moduleregistry",
-    "desktop_modules/module_books_shared",
-    "desktop_modules/module_clock",
-    "desktop_modules/module_collections",
-    "desktop_modules/module_currently",
-    "desktop_modules/module_quick_actions",
-    "desktop_modules/module_quote",
-    "desktop_modules/module_reading_goals",
-    "desktop_modules/module_reading_stats",
-    "desktop_modules/module_stats_provider",
-    "desktop_modules/sui_book_row",
-    "desktop_modules/module_book_rows",
-    "desktop_modules/module_tbr",
-    "desktop_modules/module_coll_row",
-    "desktop_modules/quotes",
+    "infra/sui_i18n", "infra/sui_config", "infra/sui_core", "screens/sui_bottombar", "screens/sui_topbar",
+    "infra/sui_patches", "screens/sui_menu", "screens/sui_titlebar", "features/sui_quickactions",
+    "screens/sui_homescreen", "features/library/sui_foldercovers", "features/library/sui_library_browse", "infra/sui_updater",
+    "features/library/sui_series_grouping", "features/library/sui_cover_widgets",
+    "features/library/sui_filter_state", "features/library/sui_virtual_path",
+    "features/library/sui_metadata_source", "features/library/sui_cover_overrides",
+    "features/library/sui_group_actions", "features/library/sui_cover_finder",
+    "infra/sui_store", "features/sui_presets", "features/sui_style",
+    "screens/sui_settings_window",
+    "screens/sui_quicksettings_bar",
+    "modules/moduleregistry",
+    "modules/module_books_shared",
+    "modules/module_clock",
+    "modules/module_collections",
+    "modules/module_currently",
+    "modules/module_quick_actions",
+    "modules/module_quote",
+    "modules/module_reading_goals",
+    "modules/module_reading_stats",
+    "modules/module_stats_provider",
+    "engines/sui_book_grid",
+    "modules/module_recent",
+    "modules/module_new_books",
+    "modules/module_tbr",
+    "modules/module_feat_coll",
+    "modules/quotes",
+    "infra/sui_custom_screens",
+    "engines/sui_screen_engine",
+    "features/sui_wallpaper",
 }
 
 -- ---------------------------------------------------------------------------
@@ -1308,7 +1357,7 @@ end
 -- path as GoHomescreen above).
 -- Otherwise (library or any other view): opens the Homescreen.
 function SimpleUIPlugin:onSimpleUIToggleHomeLibrary()
-    local HS = package.loaded["sui_homescreen"]
+    local HS = package.loaded["screens/sui_homescreen"]
     if HS and HS._instance then
         self:_navigate("home", self.ui, Config.loadTabConfig(), false)
         return true
@@ -1323,32 +1372,85 @@ function SimpleUIPlugin:onSimpleUIToggleHomeLibrary()
 end
 
 function SimpleUIPlugin:onSimpleUISettingsWindow()
-    local SettingsWindow = require("sui_settings_window")
+    local SettingsWindow = require("screens/sui_settings_window")
     SettingsWindow:show()
     return true
 end
 
 function SimpleUIPlugin:onSimpleUIRecentWindow()
-    local ok, QA = pcall(require, "sui_quickactions")
+    local ok, QA = pcall(require, "features/sui_quickactions")
     if ok and QA and QA.showRecentWindow then QA.showRecentWindow() end
     return true
 end
 
--- onCloseWidget fires on the plugin when the FM (self.ui) closes.
--- We use this to close the homescreen whenever the FM shuts down for a
--- real exit.
--- The discriminator is self.ui.tearing_down: KOReader sets it to true on the
--- FM only when the reader is about to open (filemanager.lua:onShowingReader /
--- onSetupShowReader). On a real exit the FM closes via onClose() directly,
--- without tearing_down, so we correctly close the HS and let the stack drain.
+-- Called when the user triggers the "Simple UI: Navigation Bar" gesture:
+-- opens a floating window reproducing the configured tab row, usable from
+-- anywhere (Reader, FileManager, an injected screen with no bar of its own, …).
+--
+-- When the current screen already has the bar injected on it (FileManager,
+-- Homescreen, Collections, History, a Custom Screen, …), showing the
+-- floating reproduction on top of it would be entirely redundant, so a
+-- warning is shown instead and the window is never opened.
+-- Bottombar.isBarInjectedOnCurrentScreen is the single source of truth for
+-- that check (Bottombar.showFloatingBarWindow repeats it defensively too).
+function SimpleUIPlugin:onSimpleUINavbarWindow()
+    if Bottombar.isBarInjectedOnCurrentScreen() then
+        UIManager:show(InfoMessage:new{
+            text    = _("The navigation bar is already available on this screen."),
+            timeout = 2,
+        })
+        return true
+    end
+    Bottombar.showFloatingBarWindow()
+    return true
+end
+
+-- onCloseWidget fires on the plugin when the FM (self.ui) closes — both on a
+-- real exit and when the FM is tearing down because the Reader is about to
+-- open (self.ui.tearing_down, set by filemanager.lua:onShowingReader /
+-- onSetupShowReader).
+--
+-- We close every currently live screen unconditionally in both cases,
+-- instead of leaving any of them alive underneath ReaderUI for the duration
+-- of the reading session. This is not just the built-in Homescreen: a
+-- Custom Screen the user navigated away from without explicitly closing it
+-- (see ScreenEngine.liveScreenIds()'s doc comment in
+-- engines/sui_screen_engine.lua) stays live-but-hidden exactly like the
+-- Homescreen used to, and is just as reachable from FM/the reader opening.
+-- Closing each one here frees its whole widget tree (module wrappers,
+-- wallpaper cache, quote widgets, clock refresh timer, sqlite handle) as
+-- soon as the reader opens, rather than retaining it in RAM until the book
+-- is closed again — and it removes the class of bugs where a
+-- hidden-but-alive screen still receives broadcast events (onResume,
+-- onSetRotationMode, ...) meant for the reader.
+--
+-- _navbar_closing_intentionally makes ScreenWidget:onCloseWidget take its
+-- "preserve lightweight state" branch (that screen's own _cached_books_state
+-- / _current_page / _cfg_cache — no bitmaps or widgets) for whichever id it
+-- is closing, so a later ScreenEngine.show()/CustomScreens open rebuild is
+-- warm-seeded rather than fully cold. The cover bitmap cache
+-- (sui_config.lua's _bim_cover_cache) is untouched by this close, since it
+-- lives independently of any screen widget instance.
+--
+-- ScreenWidget:onCloseWidget() (engines/sui_screen_engine.lua) already
+-- clears the flat _instance field for whichever id it belongs to as part of
+-- its own teardown, so there is no separate bookkeeping needed here beyond
+-- calling UIManager:close() on each live instance.
+--
+-- _raiseHSFromStack (the old warm-path stack-promotion helper in
+-- sui_patches.lua) has been removed: it only ever ran on the reader-return
+-- path, where every screen's _instance is now always nil by the time it
+-- would fire. Former call sites go straight to a cold open instead.
 function SimpleUIPlugin:onCloseWidget()
-    local HS = package.loaded["sui_homescreen"]
-    local hs_inst = HS and HS._instance
-    if not hs_inst then return end
-    if self.ui and self.ui.tearing_down then return end
-    hs_inst._navbar_closing_intentionally = true
-    UIManager:close(hs_inst)
-    if HS._instance == hs_inst then HS._instance = nil end
+    local ScreenEngine = package.loaded["engines/sui_screen_engine"]
+    if not ScreenEngine then return end
+    for _, id in ipairs(ScreenEngine.liveScreenIds()) do
+        local inst = ScreenEngine.getInstance(id)
+        if inst then
+            inst._navbar_closing_intentionally = true
+            UIManager:close(inst)
+        end
+    end
 end
 
 function SimpleUIPlugin:onTeardown()
@@ -1365,13 +1467,11 @@ function SimpleUIPlugin:onTeardown()
     -- Give modules with internal upvalue caches a chance to nil them before
     -- their package.loaded entry is cleared — ensures the GC can collect the
     -- old tables immediately rather than waiting for the upvalue to be rebound.
-    local mod_book_rows = package.loaded["desktop_modules/module_book_rows"]
-    if mod_book_rows and type(mod_book_rows.sub_modules) == "table" then
-        for _, sub in ipairs(mod_book_rows.sub_modules) do
-            if type(sub.reset) == "function" then pcall(sub.reset) end
-        end
-    end
-    local mod_tbr = package.loaded["desktop_modules/module_tbr"]
+    local mod_recent = package.loaded["modules/module_recent"]
+    if mod_recent and type(mod_recent.reset) == "function" then pcall(mod_recent.reset) end
+    local mod_new_books = package.loaded["modules/module_new_books"]
+    if mod_new_books and type(mod_new_books.reset) == "function" then pcall(mod_new_books.reset) end
+    local mod_tbr = package.loaded["modules/module_tbr"]
     if mod_tbr and type(mod_tbr.reset) == "function" then
         pcall(mod_tbr.reset)
     end
@@ -1434,7 +1534,7 @@ function SimpleUIPlugin:onTeardown()
             end)
         end
     end
-    local mod_rg = package.loaded["desktop_modules/module_reading_goals"]
+    local mod_rg = package.loaded["modules/module_reading_goals"]
     if mod_rg and type(mod_rg.reset) == "function" then
         pcall(mod_rg.reset)
     end
@@ -1460,7 +1560,7 @@ function SimpleUIPlugin:onTeardown()
             end)
         end
     end
-    local mod_bm = package.loaded["sui_browsemeta"]
+    local mod_bm = package.loaded["features/library/sui_library_browse"]
     if mod_bm and type(mod_bm.reset) == "function" then
         pcall(mod_bm.reset)
     end
@@ -1494,12 +1594,12 @@ function SimpleUIPlugin:onScreenResize()
         local RUI = package.loaded["apps/reader/readerui"]
         if RUI and RUI.instance then return end
 
-        -- If the homescreen is open, close and reopen it so HomescreenWidget:new
+        -- If the homescreen is open, close and reopen it so ScreenWidget:new
         -- runs with the new screen dimensions. rewrapAllWidgets cannot resize it
         -- correctly because its layout is built entirely in init(), not via
         -- wrapWithNavbar — the same reason FM uses reinit() (= rotate()) instead
         -- of a simple rewrap.
-        local HS = package.loaded["sui_homescreen"]
+        local HS = package.loaded["screens/sui_homescreen"]
         if HS and HS._instance then
             local hs_inst = HS._instance
             hs_inst._navbar_closing_intentionally = true
@@ -1532,7 +1632,7 @@ function SimpleUIPlugin:onNetworkConnected()
     if RUI and RUI.instance then
         self:_rebuildAllNavbars()
     else
-        local QA = package.loaded["sui_quickactions"] or require("sui_quickactions")
+        local QA = package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
         QA.refreshWifiIcon(self)
     end
 end
@@ -1547,7 +1647,7 @@ function SimpleUIPlugin:onNetworkDisconnected()
     if RUI and RUI.instance then
         self:_rebuildAllNavbars()
     else
-        local QA = package.loaded["sui_quickactions"] or require("sui_quickactions")
+        local QA = package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
         QA.refreshWifiIcon(self)
     end
 end
@@ -1578,7 +1678,7 @@ function SimpleUIPlugin:onResume()
     self._simpleui_suspended = false
     if SUISettings:nilOrTrue("simpleui_topbar_enabled") then
         -- Small delay to let the wakeup transition finish before refreshing
-        -- the topbar. Avoids a race with HomescreenWidget:onResume() and
+        -- the topbar. Avoids a race with ScreenWidget:onResume() and
         -- prevents the timer firing while the device is still mid-wakeup.
         Topbar.scheduleRefresh(self, 0.5)
     end
@@ -1610,7 +1710,7 @@ function SimpleUIPlugin:onResume()
     -- even when nothing changed. Data changes from reading are handled by
     -- onCloseDocument, which invalidates those caches before the next render.
     if not reader_active then
-        local HS = package.loaded["sui_homescreen"]
+        local HS = package.loaded["screens/sui_homescreen"]
         if HS and HS._instance then
             -- Refresh the QA tap callback on the live homescreen instance.
             -- If the device suspended while the homescreen (or the touch menu
@@ -1624,7 +1724,7 @@ function SimpleUIPlugin:onResume()
                 plugin_ref:_navigate(aid, plugin_ref.ui, Config.loadTabConfig(), false)
             end
             -- Use keep_cache=false so that stats modules always re-fetch from
-            -- the DB on wakeup.  HomescreenWidget:onResume already issued a
+            -- the DB on wakeup.  ScreenWidget:onResume already issued a
             -- stats-only _refresh, but this call (which fires slightly later in
             -- the same resume chain) must not override it with a keep_cache=true
             -- that reuses a potentially stale _ctx_cache.
@@ -1644,7 +1744,7 @@ function SimpleUIPlugin:onReaderReady()
     local RUI = package.loaded["apps/reader/readerui"]
     local fp = RUI and RUI.instance and RUI.instance.document and RUI.instance.document.file
     if fp then
-        local SH = package.loaded["desktop_modules/module_books_shared"]
+        local SH = package.loaded["modules/module_books_shared"]
         if SH and SH._cachePut then
             local ok_ds, DocSettings = pcall(require, "docsettings")
             if ok_ds and DocSettings then
@@ -1677,8 +1777,8 @@ function SimpleUIPlugin:onCloseDocument()
     self._closing_via_gesture = nil
 
     -- Consume the reload-suppress flag once, up front (rather than deep
-    -- inside the notice block below), so it is also visible to the HS
-    -- visual-refresh guard near the end of this function. Set by
+    -- inside the notice block below), so it is also visible to the
+    -- per-screen visual-refresh guard near the end of this function. Set by
     -- patchReloadDocument just before ReaderUI:reloadDocument() runs —
     -- covers font size, margins, line spacing, and any other CRE setting
     -- change that triggers a background reflow + seamless reload. Those
@@ -1689,8 +1789,33 @@ function SimpleUIPlugin:onCloseDocument()
     self._suppress_closing_notice = nil
 
     if self._simpleui_suspended then return end
-    local HS = package.loaded["sui_homescreen"]
-    if not HS then return end
+    local ScreenEngine = package.loaded["engines/sui_screen_engine"]
+    if not ScreenEngine then return end
+
+    -- BUGFIX: sui_screen_engine.lua's sectionLabel() memoizes the header
+    -- widget for any book-grid-engine row that shows pagination chevrons
+    -- (TBR, Featured Collection, ...) under a cache key of
+    -- "mod_id|page|npages" — it does NOT (and structurally cannot cheaply)
+    -- include the identity of the turnPageFn closure passed in for THIS
+    -- render. Every homescreen rebuild after a document closes creates a
+    -- fresh ctx and therefore a fresh turnPageFn closure bound to that new
+    -- ctx/repaint machinery — but if the row happens to land back on the
+    -- same page/npages it had before the book was opened (the common case:
+    -- pagination state rarely changes just from reading a book), the cache
+    -- key matches and sectionLabel() hands back the OLD cached widget,
+    -- chevrons included, whose Button.callback is still wired to the OLD,
+    -- now-dead turnPageFn/ctx from before this document was opened. Tapping
+    -- those chevrons then silently invokes a closure over a ctx that no
+    -- longer corresponds to anything on screen — no error, no visible
+    -- effect, since it's a live Lua closure (nothing to raise on), just
+    -- discovered as "the chevrons do nothing" after returning from a book.
+    -- Invalidate unconditionally here (cheap: just clears a table) rather
+    -- than trying to enumerate which screens/modules use page_nav, mirroring
+    -- how invalidateLabelCache() is already called elsewhere in this file on
+    -- rotation for the same reason (stale widget identity across a rebuild).
+    if ScreenEngine.invalidateLabelCache then
+        ScreenEngine.invalidateLabelCache()
+    end
 
     -- Filepath of the book that just closed. readhistory.hist[1] is still the
     -- closing book at this point (the reader has not yet handed control back
@@ -1710,7 +1835,7 @@ function SimpleUIPlugin:onCloseDocument()
     -- silently falls through to the ordinary text notice further down.
     local cover_shown = false
     if not is_reload then
-        local Patches = package.loaded["sui_patches"]
+        local Patches = package.loaded["infra/sui_patches"]
         if Patches and Patches.CoverTransition and Patches.CoverTransition.isCloseEnabled() then
             local orig_show = UIManager._simpleui_show_orig or UIManager.show
             local live_doc  = self.ui and self.ui.document
@@ -1722,7 +1847,12 @@ function SimpleUIPlugin:onCloseDocument()
         end
     end
 
-    -- Show a brief "closing book" notice whenever a book is closed.
+    -- Show a brief "closing book" notice whenever a book is closed. This is
+    -- a single global toggle, not a per-screen one — it fires regardless of
+    -- which screen the user lands on afterwards, so it stays keyed under the
+    -- legacy simpleui_hs_ prefix it was given before Custom Screens existed
+    -- (renaming the stored setting key would need its own migration for a
+    -- pure naming detail, so it is left as-is here).
     -- onCloseDocument is the single, authoritative place for this: it fires on
     -- every close path (menu, gesture, or any direct call to ReaderUI:onClose).
     --
@@ -1741,7 +1871,8 @@ function SimpleUIPlugin:onCloseDocument()
     -- (i.e. the book page is still the background). forceRePaint pushes it to
     -- the e-ink screen immediately; without it _repaint() only runs on the next
     -- event-loop tick, after closeDocument() and UIManager:close(dialog) have
-    -- already run, so the notice would appear over the FM/HS far too late.
+    -- already run, so the notice would appear over whatever's underneath far
+    -- too late.
     -- timeout=0.0 schedules the InfoMessage to close itself on the next tick.
     --
     -- Migration: if simpleui_hs_closing_notice_mode is absent, fall back to the
@@ -1775,10 +1906,22 @@ function SimpleUIPlugin:onCloseDocument()
         end
     end
 
-    -- Fast-path: if the HS is not visible and is already flagged for rebuild,
-    -- there is nothing further to do — the next Homescreen.show() will rebuild
-    -- from scratch. Avoids loading the Registry and all module pcalls.
-    if not HS._instance and HS._stats_need_refresh then
+    -- Every screen id worth considering for this close event: the built-in
+    -- Homescreen (always) plus any Custom Screen with tracked state this
+    -- session — live right now, or closed-but-warm (see
+    -- ScreenEngine.knownScreenIds()). A stats/currently-reading/coverdeck
+    -- module can be enabled on any of them, each with its own pfx, so unlike
+    -- the single-screen era this cannot be decided from one flat check.
+    local screen_ids = ScreenEngine.knownScreenIds()
+    local live_ids    = ScreenEngine.liveScreenIds()
+
+    -- Fast-path: nothing is currently live, and the only known screen (the
+    -- built-in Homescreen — no Custom Screen has been touched this session)
+    -- is already flagged for rebuild. Nothing further to do — the next open
+    -- will rebuild from scratch. Avoids loading the Registry and all module
+    -- pcalls. Only taken when NO screen at all is currently live, since a
+    -- live screen always needs its own fresh check below.
+    if #live_ids == 0 and #screen_ids == 1 and ScreenEngine.needsRefresh("hs") then
         if SUISettings:nilOrTrue("simpleui_topbar_enabled") then
             Topbar.scheduleRefresh(self, 0)
         end
@@ -1788,28 +1931,73 @@ function SimpleUIPlugin:onCloseDocument()
     -- Registry is already loaded (moduleregistry was pre-loaded at boot via
     -- scheduleIn(2)); use package.loaded to avoid a pcall on the hot path.
     -- Fall back to pcall only if it hasn't been loaded yet.
-    local Registry = package.loaded["desktop_modules/moduleregistry"]
+    local Registry = package.loaded["modules/moduleregistry"]
     if not Registry then
-        local ok, reg = pcall(require, "desktop_modules/moduleregistry")
+        local ok, reg = pcall(require, "modules/moduleregistry")
         if not ok then return end
         Registry = reg
     end
 
-    local PFX = "simpleui_hs_"
-    local needs_refresh    = false
-    local currently_active = false
-
     -- Only call pcall(require) for modules that are actually enabled.
     -- Registry.get + Registry.isEnabled are cheap table lookups; the module
-    -- is guaranteed already loaded when enabled (required by the HS on open).
+    -- is guaranteed already loaded when enabled (required by its screen on open).
 
     -- closed_fp (filepath of the book that just closed) was already resolved
     -- near the top of this function, ahead of the Cover Transition / notice
     -- block, which also needs it.
 
-    -- Invalidate the shared stats provider when either stats module is active.
-    -- One SP.invalidate() covers both reading_goals and reading_stats — they
-    -- both read ctx.stats which is populated from StatsProvider.get().
+    -- Per-screen module-active flags, keyed by screen id. Each known screen
+    -- can have a different set of modules enabled (different pfx) — computed
+    -- once per screen here, then reused by every block below instead of each
+    -- block re-deciding activity against a single hardcoded pfx.
+    local mod_rg   = Registry.get("reading_goals")
+    local mod_rs   = Registry.get("reading_stats")
+    local mod_cr   = Registry.get("currently")
+    local mod_cd   = Registry.get("coverdeck")
+    local all_mods = Registry.list()
+
+    local stats_active_for     = {}
+    local currently_active_for = {}
+    local coverdeck_active_for = {}
+    local any_stats_active     = false
+    local any_currently_active = false
+    local any_coverdeck_active = false
+
+    for _, id in ipairs(screen_ids) do
+        local pfx = ScreenEngine.getPfx(id)
+
+        local s_active = (mod_rg and Registry.isEnabled(mod_rg, pfx))
+            or (mod_rs and mod_rs.isEnabled and mod_rs.isEnabled(pfx))
+        if not s_active then
+            for _, mod in ipairs(all_mods) do
+                if mod.needs and mod.needs.stats and Registry.isEnabled(mod, pfx) then
+                    s_active = true
+                    break
+                end
+            end
+        end
+        stats_active_for[id] = s_active
+        any_stats_active = any_stats_active or s_active
+
+        local c_active  = mod_cr and Registry.isEnabled(mod_cr, pfx) or false
+        local cd_active = mod_cd and Registry.isEnabled(mod_cd, pfx) or false
+        currently_active_for[id] = c_active
+        coverdeck_active_for[id] = cd_active
+        any_currently_active = any_currently_active or c_active
+        any_coverdeck_active = any_coverdeck_active or cd_active
+    end
+
+    -- Tracks, per screen id, whether that screen has pending work below —
+    -- the per-id equivalent of the old single `needs_refresh` flag.
+    local needs_refresh_for = {}
+    local any_needs_refresh = false
+
+    -- Invalidate the shared stats provider when any known screen has a stats
+    -- module active. One SP.invalidate() covers both reading_goals and
+    -- reading_stats — they both read ctx.stats which is populated from
+    -- StatsProvider.get(). StatsProvider is a single provider shared by every
+    -- screen (not per-screen state), so this whole block still runs at most
+    -- once per close, regardless of how many screens use it.
     --
     -- Optimisation: SP contains two parts — DB time-series (always stale after
     -- a reading session) and books_year/books_total (sidecar scan, expensive).
@@ -1821,33 +2009,19 @@ function SimpleUIPlugin:onCloseDocument()
     -- and we can spare the full SP.invalidate() — instead we call
     -- SP.invalidateTimeSeries() which discards only the DB-derived fields,
     -- leaving books_year/books_total intact in the cache.
-    local mod_rg = Registry.get("reading_goals")
-    local mod_rs = Registry.get("reading_stats")
-    local stats_active = (mod_rg and Registry.isEnabled(mod_rg, PFX))
-        or (mod_rs and mod_rs.isEnabled and mod_rs.isEnabled(PFX))
-
-    if not stats_active then
-        for _, mod in ipairs(Registry.list()) do
-            if mod.needs and mod.needs.stats and Registry.isEnabled(mod, PFX) then
-                stats_active = true
-                break
-            end
-        end
-    end
-
-    if stats_active then
-        local SP = package.loaded["desktop_modules/module_stats_provider"]
+    if any_stats_active then
+        local SP = package.loaded["modules/module_stats_provider"]
         -- Fall back to pcall require: the module may not be in package.loaded yet
-        -- if the homescreen was never opened this session (e.g. the user went
-        -- straight from boot to the reader without visiting the homescreen).
+        -- if no screen was opened this session (e.g. the user went straight
+        -- from boot to the reader without visiting any SimpleUI screen).
         if not SP then
-            local ok_sp, m = pcall(require, "desktop_modules/module_stats_provider")
+            local ok_sp, m = pcall(require, "modules/module_stats_provider")
             if ok_sp then SP = m end
         end
         if SP then
             local status_changed = true  -- default: full invalidation (safe)
             if closed_fp and SP.invalidateTimeSeries then
-                local SH = package.loaded["desktop_modules/module_books_shared"]
+                local SH = package.loaded["modules/module_books_shared"]
                 -- Pre-session status: read from sidecar cache (no I/O).
                 -- The cache entry is still valid here — SH.invalidateSidecarCache
                 -- for closed_fp runs later in this function, after this block.
@@ -1898,14 +2072,26 @@ function SimpleUIPlugin:onCloseDocument()
 
                 -- Auto-populate date_finished if missing for a completed book.
                 -- Sources tried in priority order:
-                --   1. pre_s.date_finished (already a SimpleUI string).
-                --   2. pre_s.modified      (the sidecar's pre-session modified,
-                --        which for books marked complete via KOReader's library
-                --        is the string date set by filemanagerutil.saveSummary).
-                --   3. Today's date        — ONLY when the cache confirmed the
-                --        book was NOT complete before this session (cache_hit AND
-                --        not pre_complete). Never written on a cache miss, because
-                --        we cannot distinguish a genuine new completion from an
+                --   1. pre_s.date_finished (already a SimpleUI string) — ONLY
+                --        trusted when the book was already complete before this
+                --        session (pre_complete), i.e. it genuinely describes a
+                --        prior completion.
+                --   2. pre_s.modified      (the sidecar's pre-session modified)
+                --        — ONLY trusted under the same pre_complete condition.
+                --        IMPORTANT: filemanagerutil.saveSummary (and
+                --        readerstatus.lua) overwrite summary.modified with
+                --        today's date on EVERY status change, not just on
+                --        completion — tapping "Reading" the day the book was
+                --        started stamps that same date into `modified`. If we
+                --        used pre_s.modified regardless of pre_complete, a
+                --        *genuine new* completion would pick up that stale
+                --        status-change date instead of today, making
+                --        date_finished collapse onto date_started. So this
+                --        source is gated on pre_complete exactly like #1.
+                --   3. Today's date        — used whenever this is a genuine
+                --        new completion (cache_hit AND not pre_complete).
+                --        Never written on a cache miss, because we cannot
+                --        distinguish a genuine new completion from an
                 --        already-complete book outside the prefetch window.
                 if post_complete and closed_fp then
                     if RUI and RUI.instance and type(RUI.instance.doc_settings) == "table" then
@@ -1913,34 +2099,39 @@ function SimpleUIPlugin:onCloseDocument()
                         if not s.date_finished then
                             local finished_date
                             if cache_hit then
-                                local cached = SH and (SH._cacheGetRaw or SH._cacheGet) and
-                                               (SH._cacheGetRaw or SH._cacheGet)(closed_fp)
-                                local pre_s  = cached and cached.summary
-                                if type(pre_s) == "table" then
-                                    if type(pre_s.date_finished) == "string" then
-                                        finished_date = pre_s.date_finished
-                                    elseif type(pre_s.modified) == "string" then
-                                        -- filemanagerutil.saveSummary writes modified as
-                                        -- "YYYY-MM-DD" when the user taps a status button.
-                                        -- This is the correct completion date for books
-                                        -- that were marked complete before SimpleUI.
-                                        finished_date = pre_s.modified
-                                    elseif type(pre_s.modified) == "number" then
-                                        finished_date = os.date("%Y-%m-%d", pre_s.modified)
-                                    elseif type(pre_s.modified) == "table" and pre_s.modified.year then
-                                        finished_date = string.format("%04d-%02d-%02d",
-                                            pre_s.modified.year, pre_s.modified.month, pre_s.modified.day)
+                                if pre_complete then
+                                    local cached = SH and (SH._cacheGetRaw or SH._cacheGet) and
+                                                   (SH._cacheGetRaw or SH._cacheGet)(closed_fp)
+                                    local pre_s  = cached and cached.summary
+                                    if type(pre_s) == "table" then
+                                        if type(pre_s.date_finished) == "string" then
+                                            finished_date = pre_s.date_finished
+                                        elseif type(pre_s.modified) == "string" then
+                                            -- filemanagerutil.saveSummary writes modified as
+                                            -- "YYYY-MM-DD" when the user taps a status button.
+                                            -- Safe here because pre_complete confirms the book
+                                            -- was already "complete" before this session, so
+                                            -- this modified date genuinely was the completion
+                                            -- date (books marked complete before SimpleUI).
+                                            finished_date = pre_s.modified
+                                        elseif type(pre_s.modified) == "number" then
+                                            finished_date = os.date("%Y-%m-%d", pre_s.modified)
+                                        elseif type(pre_s.modified) == "table" and pre_s.modified.year then
+                                            finished_date = string.format("%04d-%02d-%02d",
+                                                pre_s.modified.year, pre_s.modified.month, pre_s.modified.day)
+                                        end
                                     end
                                 end
-                                -- Only fall back to today if we confirmed (via cache) that
-                                -- this is a genuine new completion, not a re-open.
+                                -- Genuine new completion this session: pre_s.date_finished/
+                                -- modified (if any) describe an unrelated earlier status
+                                -- change, not this completion — always use today instead.
                                 if not finished_date and not pre_complete then
                                     finished_date = os.date("%Y-%m-%d")
                                 end
                             end
                             -- cache_hit = false → finished_date stays nil → nothing written.
-                            -- The book keeps no date_finished until the next homescreen
-                            -- open warm the sidecar cache, after which the next close will
+                            -- The book keeps no date_finished until the next screen open
+                            -- warms the sidecar cache, after which the next close will
                             -- succeed via the cache-hit path above.
                             if finished_date then
                                 s.date_finished = finished_date
@@ -1962,89 +2153,107 @@ function SimpleUIPlugin:onCloseDocument()
                 -- SP.invalidateTimeSeries not available (older version): fall back.
                 SP.invalidate()
             end
-            needs_refresh = true
+            for _, id in ipairs(screen_ids) do
+                if stats_active_for[id] then
+                    needs_refresh_for[id] = true
+                    any_needs_refresh = true
+                end
+            end
         end
     end
 
     -- Currently Reading shows the current book's cover, title, author and
-    -- progress (percent_finished). All of these come from _cached_books_state.
-    -- When the reader closes, percent_finished has changed for the closed book.
-    -- Instead of discarding the entire _cached_books_state (which forces
-    -- prefetchBooks() to re-open every sidecar), we do a surgical invalidation:
-    -- only the entry for the closed book is removed from prefetched_data.
-    -- prefetchBooks() will then re-open exactly one sidecar (the closed book)
-    -- and reuse the mtime-validated sidecar cache for all other entries.
+    -- progress (percent_finished). All of these come from a screen's own
+    -- _cached_books_state. When the reader closes, percent_finished has
+    -- changed for the closed book. Instead of discarding the entire
+    -- _cached_books_state (which forces prefetchBooks() to re-open every
+    -- sidecar), we do a surgical invalidation: only the entry for the closed
+    -- book is removed from prefetched_data. prefetchBooks() will then re-open
+    -- exactly one sidecar (the closed book) and reuse the mtime-validated
+    -- sidecar cache for all other entries.
     -- Read the md5 of the closing book once — used by both Currently Reading
-    -- and Cover Deck for surgical stats-cache invalidation.
+    -- and Cover Deck for surgical stats-cache invalidation. Tries every known
+    -- screen's cache in turn (whichever one actually has the closed book's
+    -- entry); a miss on all of them just falls back to the full-flush path
+    -- further down, so trying more than one screen here is a pure bonus, not
+    -- a correctness requirement.
     local closed_md5
     if closed_fp then
-        local bs_pre = (HS._instance and HS._instance._cached_books_state)
-                    or HS._cached_books_state
-        local pe = bs_pre and bs_pre.prefetched_data
-                and bs_pre.prefetched_data[closed_fp]
-        closed_md5 = pe and pe.partial_md5_checksum
+        for _, id in ipairs(screen_ids) do
+            local bs_pre = ScreenEngine.getCachedBooksState(id)
+            local pe = bs_pre and bs_pre.prefetched_data
+                    and bs_pre.prefetched_data[closed_fp]
+            if pe and pe.partial_md5_checksum then
+                closed_md5 = pe.partial_md5_checksum
+                break
+            end
+        end
     end
 
     -- Currently Reading: invalidate book data so the next render shows fresh
     -- progress. Uses surgical invalidation to avoid re-opening every sidecar.
-    local mod_cr = Registry.get("currently")
-    currently_active = mod_cr and Registry.isEnabled(mod_cr, PFX) or false
-    -- Also check coverdeck here so we know whether its full discard will
-    -- supersede the surgical currently-reading invalidation below.
-    local mod_cd = Registry.get("coverdeck")
-    local coverdeck_active = mod_cd and Registry.isEnabled(mod_cd, PFX) or false
-    if currently_active then
-        -- Surgical invalidation: drop only the closed book's entry so
-        -- prefetchBooks() re-reads exactly one sidecar, cache-hitting the rest.
-        -- Skipped when coverdeck is also active — its block below will discard
-        -- _cached_books_state entirely, making the partial work redundant.
-        if not coverdeck_active then
-            local function _partial_invalidate(bs)
-                if not bs then return end
-                -- Drop the entry for the closed book so prefetchBooks() re-reads it.
-                if bs.prefetched_data and closed_fp then
-                    bs.prefetched_data[closed_fp] = nil
+    if any_currently_active then
+        local function _partial_invalidate(bs)
+            if not bs then return end
+            -- Drop the entry for the closed book so prefetchBooks() re-reads it.
+            if bs.prefetched_data and closed_fp then
+                bs.prefetched_data[closed_fp] = nil
+            end
+            -- current_fp will be re-resolved by the next prefetchBooks() call.
+            -- Setting it to nil ensures Currently Reading does not paint
+            -- stale progress data before the refresh completes.
+            bs.current_fp = nil
+        end
+        for _, id in ipairs(screen_ids) do
+            if currently_active_for[id] then
+                -- Skipped when coverdeck is also active on this same screen —
+                -- its block below will discard that screen's _cached_books_state
+                -- entirely, making the partial work redundant.
+                if not coverdeck_active_for[id] then
+                    local inst = ScreenEngine.getInstance(id)
+                    if inst then
+                        _partial_invalidate(inst._cached_books_state)
+                    end
+                    _partial_invalidate(ScreenEngine.getCachedBooksState(id))
                 end
-                -- current_fp will be re-resolved by the next prefetchBooks() call.
-                -- Setting it to nil ensures Currently Reading does not paint
-                -- stale progress data before the refresh completes.
-                bs.current_fp = nil
-            end
-            if HS._instance then
-                _partial_invalidate(HS._instance._cached_books_state)
-                _partial_invalidate(HS._cached_books_state)
+                -- When this screen is not live, the partially invalidated
+                -- flat _cached_books_state (with current_fp=nil) would be
+                -- passed to the next ScreenWidget:new{} on its next open.
+                -- Because the state is non-nil, _buildCtx() skips
+                -- prefetchBooks() entirely, leaving ctx.current_fp = nil and
+                -- causing Currently Reading to disappear. Fix: discard the
+                -- flat cached state so _buildCtx() is forced to call
+                -- prefetchBooks() from scratch on the next open.
+                if not ScreenEngine.getInstance(id) then
+                    ScreenEngine.setCachedBooksState(id, nil)
+                end
+                needs_refresh_for[id] = true
+                any_needs_refresh = true
             end
         end
-        -- When the homescreen is not visible (HS._instance == nil), the partially
-        -- invalidated HS._cached_books_state (with current_fp=nil) would be passed
-        -- to the next HomescreenWidget:new{} in Homescreen.show(). Because the
-        -- state is non-nil, _buildCtx() skips prefetchBooks() entirely, leaving
-        -- ctx.current_fp = nil and causing Currently Reading to disappear.
-        -- Fix: discard the shared cached state so _buildCtx() is forced to call
-        -- prefetchBooks() from scratch on the next Homescreen.show().
-        if not HS._instance then
-            HS._cached_books_state = nil
-        end
-        local MC = package.loaded["desktop_modules/module_currently"]
+        local MC = package.loaded["modules/module_currently"]
         if MC and MC.invalidateCache then MC.invalidateCache() end
-        needs_refresh = true
     end
 
     -- Cover Deck: invalidate book list and stats cache so the carousel
-    -- reflects the updated reading history immediately on return to the HS.
-    -- This is independent of Currently Reading — coverdeck may be active alone.
-    if coverdeck_active then
+    -- reflects the updated reading history immediately on return to whichever
+    -- screen shows it. This is independent of Currently Reading — coverdeck
+    -- may be active alone.
+    if any_coverdeck_active then
         -- Surgically evict only the closed book's stats from the cache.
-        -- All other carousel entries are unaffected.
-        local MCD = package.loaded["desktop_modules/module_coverdeck"]
+        -- All other carousel entries are unaffected. module_coverdeck.lua's
+        -- cache is shared across every screen (keyed by md5, not by screen
+        -- id), so this runs once regardless of how many screens show it.
+        local MCD = package.loaded["modules/module_coverdeck"]
         if MCD then
             if closed_md5 and MCD.invalidateCacheForMd5 then
                 -- Fast path: only evict the one book that changed.
                 MCD.invalidateCacheForMd5(closed_md5)
             elseif MCD.invalidateCache then
-                -- Fallback: md5 was not in prefetched_data (book outside the
-                -- top-5 window, or _cached_books_state was already nil).
-                -- Full flush is safe — fetchBookStats re-populates on demand.
+                -- Fallback: md5 was not found in any known screen's
+                -- prefetched_data (book outside the top-5 window, or every
+                -- _cached_books_state was already nil). Full flush is safe —
+                -- fetchBookStats re-populates on demand.
                 MCD.invalidateCache()
             end
         end
@@ -2059,78 +2268,109 @@ function SimpleUIPlugin:onCloseDocument()
         -- returning the previous day's numbers for one frame after a
         -- reading session ends — accepted as fine, since SP.get() overwrites
         -- everything ~50ms later anyway. Earlier versions of this code tried
-        -- to eagerly fix HS._instance._ctx_cache.current_fp/recent_fps right
-        -- here via SH.peekRecentBooks(), to avoid the carousel/title showing
-        -- the previous book for that one frame — but that traded a few stat
-        -- syscalls per close for a guarantee that wasn't actually needed:
-        -- exactly like the stats case, _ctx_cache.current_fp/recent_fps
-        -- being one step stale for ~50ms is harmless, since the deferred
-        -- _refresh() tick (see _refresh()'s scheduleIn(0.05, ...) in
-        -- sui_homescreen.lua) unconditionally re-resolves both from a real
-        -- SH.prefetchBooks() call and repaints. So: touch nothing here,
-        -- exactly like SP.invalidate() touches nothing in _cache.
-        if HS._instance then
-            HS._instance._cached_books_state = nil
-            if HS._instance._ctx_cache then
-                HS._instance._ctx_cache.coverdeck_cur_idx = nil
+        -- to eagerly fix a live screen's _ctx_cache.current_fp/recent_fps
+        -- right here via SH.peekRecentBooks(), to avoid the carousel/title
+        -- showing the previous book for that one frame — but that traded a
+        -- few stat syscalls per close for a guarantee that wasn't actually
+        -- needed: exactly like the stats case, _ctx_cache.current_fp/
+        -- recent_fps being one step stale for ~50ms is harmless, since the
+        -- deferred _refresh() tick (see _refresh()'s scheduleIn(0.05, ...) in
+        -- engines/sui_screen_engine.lua) unconditionally re-resolves both
+        -- from a real SH.prefetchBooks() call and repaints. So: touch
+        -- nothing here, exactly like SP.invalidate() touches nothing in
+        -- _cache.
+        for _, id in ipairs(screen_ids) do
+            if coverdeck_active_for[id] then
+                local inst = ScreenEngine.getInstance(id)
+                if inst then
+                    inst._cached_books_state = nil
+                    if inst._ctx_cache then
+                        inst._ctx_cache.coverdeck_cur_idx = nil
+                    end
+                else
+                    -- Not live: discard the flat cached state so the next
+                    -- open is forced to call prefetchBooks() from scratch.
+                    -- Without this, the stale _cached_books_state (non-nil)
+                    -- causes _buildCtx() to skip prefetchBooks(), leaving the
+                    -- carousel with the old history order until the user
+                    -- manually refreshes.
+                    ScreenEngine.setCachedBooksState(id, nil)
+                end
+                needs_refresh_for[id] = true
+                any_needs_refresh = true
             end
-        else
-            -- HS not visible: discard the shared cached state so the next
-            -- Homescreen.show() is forced to call prefetchBooks() from scratch.
-            -- Without this, the stale _cached_books_state (non-nil) causes
-            -- _buildCtx() to skip prefetchBooks(), leaving the carousel with
-            -- the old history order until the user manually refreshes.
-            HS._cached_books_state = nil
         end
-        needs_refresh = true
     end
 
-    if not needs_refresh then return end
+    if not any_needs_refresh then return end
 
-    local book_mod_active = currently_active or coverdeck_active
-
-    -- Invalidate the sidecar mtime-cache entry for the closed book only when
-    -- a book module is active — prefetchBooks() will re-read it on next render.
-    -- Stats-only path never calls prefetchBooks, so no sidecar work is needed.
+    -- Invalidate the sidecar mtime-cache entry for the closed book once, if
+    -- any screen has a book module (Currently Reading / Cover Deck) active —
+    -- prefetchBooks() will re-read it on next render. Stats-only screens
+    -- never call prefetchBooks, so no sidecar work is needed for them.
     -- Guard: only invalidate surgically when closed_fp is known; a nil fp would
     -- flush the entire cache, discarding valid entries for all other books.
-    if book_mod_active and closed_fp then
-        local SH = package.loaded["desktop_modules/module_books_shared"]
+    local any_book_mod_active = any_currently_active or any_coverdeck_active
+    if any_book_mod_active and closed_fp then
+        local SH = package.loaded["modules/module_books_shared"]
         if SH and SH.invalidateSidecarCache then
             SH.invalidateSidecarCache(closed_fp)
         end
     end
 
-    if HS._instance then
-        if is_reload then
-            -- The old ReaderUI is being torn down and a new one is about to
-            -- be shown in its place, in the same synchronous call chain
-            -- (ReaderUI:reloadDocument, triggered by a font size, margin,
-            -- line spacing, or other CRE setting change). HS._instance is
-            -- the hidden HomescreenWidget kept under the reader per the
-            -- _live_widget/_raiseInPlace architecture — calling HS.refresh()
-            -- here would UIManager:setDirty() it while it is briefly the
-            -- topmost widget (old reader gone, new reader not shown yet),
-            -- producing a visible flash to the homescreen and back.
-            --
-            -- Nothing homescreen-relevant has actually changed: the book's
-            -- status/percent_finished are unaffected by a reformat, and the
-            -- reading session survives the reload via PreserveCurrentSession
-            -- (see readerui.lua:reloadDocument). So just flag the widget for
-            -- a refresh the next time it genuinely becomes visible, instead
-            -- of repainting it now.
-            HS._instance._stats_need_refresh = true
-        else
-            -- Determine what changed and use the narrowest refresh that covers it:
-            --   books_only  → book module(s) active; prefetchBooks() must re-run.
-            --   stats_only  → only stats modules active; SP.get() must re-run but
-            --                  no sidecar I/O is needed (_cached_books_state kept).
-            -- keep_cache is always false — we never want to reuse a stale _ctx_cache.
-            HS.refresh(false, book_mod_active, not book_mod_active)
+    -- Refresh (or flag for refresh) every screen with pending work, using the
+    -- narrowest refresh that covers what changed on that particular screen.
+    for _, id in ipairs(screen_ids) do
+        if needs_refresh_for[id] then
+            local book_mod_active = currently_active_for[id] or coverdeck_active_for[id]
+            local inst = ScreenEngine.getInstance(id)
+            if inst then
+                if is_reload then
+                    -- Defensive branch, not expected to trigger in normal
+                    -- operation. It used to guard against a real hazard: the
+                    -- old ReaderUI being torn down and a new one shown in its
+                    -- place in the same synchronous call chain
+                    -- (ReaderUI:reloadDocument, triggered by a font size,
+                    -- margin, line spacing, or other CRE setting change),
+                    -- with a ScreenWidget instance still parked, hidden,
+                    -- under the reader from before the soft-park architecture
+                    -- was retired. Refreshing it there would have
+                    -- UIManager:setDirty()'d it while it was briefly the
+                    -- topmost widget (old reader gone, new reader not shown
+                    -- yet), producing a visible flash to this screen and
+                    -- back.
+                    --
+                    -- Since ScreenWidget:onShowingReader() now closes the
+                    -- screen the moment a book is opened (see
+                    -- engines/sui_screen_engine.lua), ScreenEngine.getInstance(id)
+                    -- is nil throughout the entire time a book is open —
+                    -- including across a reload — so `inst` above should
+                    -- never be truthy here anymore. Kept as a safety net
+                    -- rather than removed, in case a future change
+                    -- reintroduces a scenario where a screen instance
+                    -- survives underneath the reader.
+                    --
+                    -- Nothing on this screen has actually changed: the book's
+                    -- status/percent_finished are unaffected by a reformat,
+                    -- and the reading session survives the reload via
+                    -- PreserveCurrentSession (see readerui.lua:reloadDocument).
+                    -- So just flag the widget for a refresh the next time it
+                    -- genuinely becomes visible, instead of repainting it now.
+                    ScreenEngine.setNeedsRefresh(id)
+                else
+                    -- Determine what changed and use the narrowest refresh that
+                    -- covers it:
+                    --   books_only  → book module(s) active; prefetchBooks() must re-run.
+                    --   stats_only  → only stats modules active; SP.get() must re-run but
+                    --                  no sidecar I/O is needed (_cached_books_state kept).
+                    -- keep_cache is always false — we never want to reuse a stale _ctx_cache.
+                    ScreenEngine.refreshScreen(id, false, book_mod_active, not book_mod_active)
+                end
+            else
+                -- Not currently visible — flag it for rebuild on next open.
+                ScreenEngine.setNeedsRefresh(id)
+            end
         end
-    else
-        -- Homescreen not visible yet — flag it for rebuild on next open.
-        HS._stats_need_refresh = true
     end
 
     -- Restart the topbar clock chain. While the reader was open, shouldRunTimer()
@@ -2150,7 +2390,7 @@ end
 --
 -- SimpleUI reads title/author from the sidecar's doc_props via prefetchBooks()
 -- and caches the result in both the sidecar mtime-cache (_sidecar_cache in
--- module_books_shared) and the homescreen's _cached_books_state table.
+-- module_books_shared) and each live screen's own _cached_books_state table.
 --
 -- Without this handler, editing metadata has no visible effect on the
 -- Currently Reading (and Recent) modules: _cached_books_state is never
@@ -2161,32 +2401,32 @@ end
 -- don't know which file was edited from the event alone; prop_updated carries
 -- a filepath key in some call-sites but not all, so a full flush is safest
 -- and cheap — it only costs one extra DS.open on the next render), discard
--- _cached_books_state to force a full prefetchBooks() pass, and schedule a
--- homescreen refresh so the corrected metadata appears immediately.
+-- _cached_books_state to force a full prefetchBooks() pass, and refresh every
+-- live screen (built-in Homescreen and any open Custom Screen) so the
+-- corrected metadata appears immediately wherever it's shown.
 -- ---------------------------------------------------------------------------
 function SimpleUIPlugin:onBookMetadataChanged(_prop_updated)
     if self._simpleui_suspended then return end
 
-    local HS = package.loaded["sui_homescreen"]
-    if not HS then return end
+    local ScreenEngine = package.loaded["engines/sui_screen_engine"]
+    if not ScreenEngine then return end
 
     -- Flush the entire sidecar mtime-cache.  The next prefetchBooks() will
     -- re-open each sidecar and repopulate the cache from fresh disk state.
-    local SH = package.loaded["desktop_modules/module_books_shared"]
+    local SH = package.loaded["modules/module_books_shared"]
     if SH and SH.invalidateSidecarCache then
         SH.invalidateSidecarCache()  -- nil → flush all
     end
 
-    -- Discard the cached prefetch state on both the class and any live
-    -- instance so _buildCtx() is forced to call prefetchBooks() from scratch.
-    if HS._instance then
-        HS._instance._cached_books_state = nil
-    end
-    HS._cached_books_state = nil
-
-    -- Trigger a homescreen refresh (keep_cache=false, books_only=true).
-    if HS._instance then
-        HS.refresh(false, true)
+    -- Discard the cached prefetch state and refresh (keep_cache=false,
+    -- books_only=true) on every screen that is currently live, so
+    -- _buildCtx() is forced to call prefetchBooks() from scratch on each.
+    for _, id in ipairs(ScreenEngine.liveScreenIds()) do
+        local screen = ScreenEngine.getInstance(id)
+        if screen then
+            screen._cached_books_state = nil
+            screen:_refresh(false, true)
+        end
     end
 end
 
@@ -2256,7 +2496,7 @@ function SimpleUIPlugin:_restoreTabInFM(tabs, prev_action)
 end
 
 function SimpleUIPlugin:_doWifiToggle()
-    local QA = package.loaded["sui_quickactions"] or require("sui_quickactions")
+    local QA = package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
     QA.doWifiToggle(self)
 end
 
@@ -2265,7 +2505,7 @@ function SimpleUIPlugin:_doRotateScreen()
 end
 
 function SimpleUIPlugin:_showFrontlightDialog()
-    local QA = package.loaded["sui_quickactions"] or require("sui_quickactions")
+    local QA = package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
     QA.showFrontlightDialog(self)
 end
 
@@ -2287,9 +2527,9 @@ function SimpleUIPlugin:_updateFMHomeIcon() end
 local _menu_installer = nil
 
 function SimpleUIPlugin:addToMainMenu(menu_items)
-    local _ = require("sui_i18n").translate
+    local _ = require("infra/sui_i18n").translate
     if not _menu_installer then
-        local ok, result = pcall(require, "sui_menu")
+        local ok, result = pcall(require, "screens/sui_menu")
         if not ok then
             logger.err("simpleui: sui_menu failed to load: " .. tostring(result))
             menu_items.simpleui = { sorting_hint = "tools", text = _("Simple UI"), sub_item_table = {} }

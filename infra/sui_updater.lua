@@ -24,7 +24,8 @@ local _           = require("infra/sui_i18n").translate
 -- ---------------------------------------------------------------------------
 -- Configuration
 -- ---------------------------------------------------------------------------
-local GITHUB_OWNER = "doctorhetfield-cmd"
+-- local GITHUB_OWNER = "doctorhetfield-cmd"
+local GITHUB_OWNER = "YunshuangXiao"
 local GITHUB_REPO  = "simpleui.koplugin"
 local ASSET_NAME   = "simpleui.koplugin.zip"
 

@@ -1,0 +1,5 @@
+msgid "may_full"
+msgstr "May"
+
+msgid "May_full"
+msgstr "May"

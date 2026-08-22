@@ -1525,7 +1525,7 @@ local _MONTH_SHORT = {
     _("jul"), _("aug"), _("sep"), _("oct"), _("nov"), _("dec"),
 }
 local _MONTH_FULL = {
-    _("january"), _("february"), _("march"), _("april"), _("may"), _("june"),    
+    _("january"), _("february"), _("march"), _("april"), _("may_full"), _("june"),    
     _("july"), _("august"), _("september"), _("october"), _("november"), _("december"),
 }
 
@@ -2947,7 +2947,7 @@ local function _smMonthFull()
     if not _SM_MONTH_FULL then
         _SM_MONTH_FULL = {
             _("January"), _("February"), _("March"), _("April"),
-            _("May"), _("June"), _("July"), _("August"),
+            _("May_full"), _("June"), _("July"), _("August"),
             _("September"), _("October"), _("November"), _("December"),
         }
     end

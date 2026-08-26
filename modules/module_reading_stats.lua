@@ -30,8 +30,6 @@ local PAD     = UI.PAD
 local MOD_GAP = UI.MOD_GAP
 local LABEL_H = UI.LABEL_H
 
-local _CLR_TEXT_BLK  = Blitbuffer.COLOR_BLACK
-local _CLR_CARD_BDR  = Blitbuffer.gray(0.72)
 
 local _BASE_RS_CORNER_R = Screen:scaleBySize(12)
 local _BASE_RS_GAP      = Screen:scaleBySize(12)
@@ -179,10 +177,9 @@ table.sort(_sorted_pool, function(a, b) return a.label:lower() < b.label:lower()
 -- ---------------------------------------------------------------------------
 
 -- Streak value widget: icon (dark grey) + space + number (black), side by side.
--- To change icon colour: edit _STREAK_ICON_CLR.
+-- To change icon colour: edit SUIStyle.COLOR.gray_strong.
 -- To change spacing:     edit _STREAK_ICON_GAP.
 local _STREAK_ICON     = ""            -- U+F490 Nerd Fonts flame
-local _STREAK_ICON_CLR = Blitbuffer.gray(0.80)  -- dark grey; 0=black, 1=white
 local _STREAK_ICON_GAP = 6                   -- pixels between icon and number
 
 local function makeStreakValWidget(val_str, d, clr_blk)
@@ -190,14 +187,14 @@ local function makeStreakValWidget(val_str, d, clr_blk)
         UI.makeColoredText{
             text    = _STREAK_ICON,
             face    = d.face_val,
-            fgcolor = _STREAK_ICON_CLR,
+            fgcolor = SUIStyle.COLOR.gray_strong,
         },
         HorizontalSpan:new{ width = _STREAK_ICON_GAP },
         UI.makeColoredText{
             text    = val_str,
             face    = d.face_val,
             bold    = true,
-            fgcolor = clr_blk or _CLR_TEXT_BLK,
+            fgcolor = clr_blk or SUIStyle.COLOR.text_primary,
         },
     }
 end
@@ -233,7 +230,7 @@ end
 -- `d` is the scaled-dims table produced once per M.build() call.
 
 local function buildStatCardWidget(card_w, stat_id, stats, d, align, colors, transparent)
-    local clr_blk = colors and colors.blk or _CLR_TEXT_BLK
+    local clr_blk = colors and colors.blk or SUIStyle.COLOR.text_primary
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
     local cc = CenterContainer:new{
         dimen = Geom:new{ w = card_w, h = d.card_h },
@@ -242,8 +239,8 @@ local function buildStatCardWidget(card_w, stat_id, stats, d, align, colors, tra
     local fc = FrameContainer:new{
         dimen      = Geom:new{ w = card_w, h = d.card_h },
         bordersize = SUIStyle.BORDER_SZ,
-        color      = _CLR_CARD_BDR,
-        background = not transparent and Blitbuffer.COLOR_WHITE or nil,
+        color      = SUIStyle.COLOR.gray,
+        background = not transparent and SUIStyle.COLOR.surface or nil,
         radius     = d.corner_r,
         padding    = 0,
         cc,
@@ -255,9 +252,8 @@ local function buildStatCardWidget(card_w, stat_id, stats, d, align, colors, tra
 end
 
 -- Flat mode: no border, tinted background, content aligned.
-local _CLR_FLAT_BG = Blitbuffer.gray(0.08)
 local function buildStatFlatWidget(card_w, stat_id, stats, d, align, colors)
-    local clr_blk = colors and colors.blk or _CLR_TEXT_BLK
+    local clr_blk = colors and colors.blk or SUIStyle.COLOR.text_primary
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
     local cc = CenterContainer:new{
         dimen = Geom:new{ w = card_w, h = d.card_h },
@@ -266,7 +262,7 @@ local function buildStatFlatWidget(card_w, stat_id, stats, d, align, colors)
     local fc = FrameContainer:new{
         dimen      = Geom:new{ w = card_w, h = d.card_h },
         bordersize = 0,
-        background = _CLR_FLAT_BG,
+        background = SUIStyle.COLOR.surface_flat,
         radius     = d.corner_r,
         padding    = 0,
         cc,
@@ -277,7 +273,7 @@ local function buildStatFlatWidget(card_w, stat_id, stats, d, align, colors)
     return fc, update_fn
 end
 local function buildStatListCell(cell_w, stat_id, stats, show_sep, d, align, colors)
-    local clr_blk = colors and colors.blk or _CLR_TEXT_BLK
+    local clr_blk = colors and colors.blk or SUIStyle.COLOR.text_primary
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
 
     local cc = CenterContainer:new{
@@ -298,7 +294,7 @@ local function buildStatListCell(cell_w, stat_id, stats, show_sep, d, align, col
     if show_sep then
         local sep = LineWidget:new{
             dimen      = Geom:new{ w = d.sep_w, h = d.card_h },
-            background = _CLR_CARD_BDR,
+            background = SUIStyle.COLOR.gray,
         }
         sep.overlap_offset = { cell_w - d.sep_w, 0 }
         og[#og+1] = sep
@@ -456,12 +452,8 @@ function M.build(w, ctx)
         face_ph  = Font:getFace(SUIStyle.FACE_REGULAR, _ph_fs),
     }
 
-    -- Theme: when fg is set use it for all text; otherwise fall back to module defaults.
-    local ok_ss, SUIStyle  = pcall(require, "features/sui_style")
-    local _theme_fg        = ok_ss and SUIStyle and SUIStyle.getThemeColor("fg")
-    local _theme_secondary = ok_ss and SUIStyle and SUIStyle.getThemeColor("text_secondary")
-    local _CLR_TEXT_BLK_EFF = _theme_fg or _CLR_TEXT_BLK
-    local CLR_TEXT_SUB_EFF  = _theme_secondary or _theme_fg or CLR_TEXT_SUB
+    local _CLR_TEXT_BLK_EFF = SUIStyle.COLOR.text_primary
+    local CLR_TEXT_SUB_EFF  = CLR_TEXT_SUB
 
     -- Show a placeholder when enabled but no stats have been selected yet.
     if #stat_ids == 0 then

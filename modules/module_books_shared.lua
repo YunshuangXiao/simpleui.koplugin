@@ -168,8 +168,6 @@ function SH.getDims(scale, thumb_scale)
     }
 end
 
-local _CLR_COVER_BORDER = Blitbuffer.COLOR_BLACK
-local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
 
 -- ---------------------------------------------------------------------------
 -- vspan pool helper
@@ -343,8 +341,8 @@ function SH.coverPlaceholder(title, authors, w, h)
         bordersize = border,
         margin     = 0,
         padding    = 0,
-        color      = _CLR_COVER_BORDER,
-        background = Blitbuffer.COLOR_WHITE,
+        color      = SUIStyle.COLOR.text_primary,
+        background = SUIStyle.COLOR.surface,
         CenterContainer:new{
             dimen = Geom:new{ w = width, h = height },
             vgroup,
@@ -381,7 +379,7 @@ function SH.getBookCover(filepath, w, h)
     if not (ok and img) then return nil end
     -- padding=0 + bordersize=1: the FrameContainer outer size is inner_w+2 × inner_h+2 = w×h.
     return FrameContainer:new{
-        bordersize = SUIStyle.BADGE_BORDER_SZ, color = _CLR_COVER_BORDER,
+        bordersize = SUIStyle.BADGE_BORDER_SZ, color = SUIStyle.COLOR.text_primary,
         padding    = 0, margin = 0,
         dimen      = Geom:new{ w = w, h = h },
         img,
@@ -418,7 +416,7 @@ function SH.getCroppedBookCover(filepath, w, h, align)
     end)
     if not (ok and img) then return nil end
     return FrameContainer:new{
-        bordersize = SUIStyle.BADGE_BORDER_SZ, color = _CLR_COVER_BORDER,
+        bordersize = SUIStyle.BADGE_BORDER_SZ, color = SUIStyle.COLOR.text_primary,
         padding    = 0, margin = 0,
         dimen      = Geom:new{ w = w, h = h },
         img,

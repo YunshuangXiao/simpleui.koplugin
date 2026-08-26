@@ -27,22 +27,16 @@ local SUIStyle    = require("features/sui_style")
 local M = {}
 
 -- ---------------------------------------------------------------------------
--- Theme color helpers
--- Priority: transparent > statusbar_bg/fg role > bg/fg fallback > default.
--- The "statusbar_bg/fg" roles fall back to "bg/fg" automatically inside
--- SUIStyle.getThemeColor() via the _FALLBACKS chain.
+-- Bar color helpers
+-- Priority: transparent > default.
 -- ---------------------------------------------------------------------------
 local function _getBarBg()
     if SUISettings:isTrue("simpleui_statusbar_transparent") then return nil end
-    local c = SUIStyle.getThemeColor("statusbar_bg")
-    if c then return c end
-    return Blitbuffer.COLOR_WHITE
+    return SUIStyle.COLOR.surface
 end
 
 local function _getBarFg()
-    local c = SUIStyle.getThemeColor("statusbar_fg")
-    if c then return c end
-    return Blitbuffer.COLOR_BLACK
+    return SUIStyle.COLOR.text_primary
 end
 
 -- ---------------------------------------------------------------------------

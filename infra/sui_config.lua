@@ -81,8 +81,7 @@ M.ICON = {
     nav_next       = _KO .. "chevron.right.svg",
     ko_home        = _KO .. "home.svg",
     ko_star        = _KO .. "star.empty.svg",
-    ko_wifi_on     = _KO .. "wifi.open.100.svg",
-    ko_wifi_off    = _KO .. "wifi.open.0.svg",
+    ko_wifi        = _KO .. "wifi.open.100.svg",
     ko_menu        = _KO .. "appbar.menu.svg",
     ko_settings    = _KO .. "appbar.settings.svg",
     ko_search      = _KO .. "appbar.search.svg",
@@ -123,7 +122,7 @@ M.ALL_ACTIONS = {
     { id = "random_document",  label = _("Random"),           icon = M.ICON.random      },
     { id = "favorites",        label = _("Favorites"),        icon = M.ICON.ko_star     },
     { id = "bookmark_browser", label = _("Bookmarks"),        icon = M.ICON.ko_bookmark },
-    { id = "wifi_toggle",      label = _("Wi-Fi"),            icon = M.ICON.ko_wifi_on  },
+    { id = "wifi_toggle",      label = _("Wi-Fi"),            icon = M.ICON.ko_wifi     },
     { id = "frontlight",       label = _("Brightness"),       icon = M.ICON.frontlight  },
     { id = "night_mode",       label = _("Night Mode"),       icon = M.ICON.night       },
     { id = "stats_calendar",   label = _("Stats"),            icon = M.ICON.stats       },
@@ -404,30 +403,31 @@ local function deviceHasWifi()
     return _has_wifi_toggle
 end
 
-function M.wifiIcon()
-    local QA = package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
-    local icon_on  = QA.getDefaultActionIcon("wifi_toggle") or M.ICON.ko_wifi_on
-    local icon_off = QA.getDefaultActionIcon("wifi_toggle_off") or M.ICON.ko_wifi_off
-
+-- Returns whether Wi-Fi is currently on. Single source of truth for the
+-- wifi_toggle Quick Action's is_active state (see features/sui_quickactions.lua),
+-- which dims the (single) Wi-Fi icon rather than swapping to a distinct
+-- "off" asset.
+function M.wifiOn()
     if M.wifi_optimistic ~= nil then
-        return M.wifi_optimistic and icon_on or icon_off
+        return M.wifi_optimistic == true
     end
-    if not deviceHasWifi() then return icon_off end
+    if not deviceHasWifi() then return false end
     local NetworkMgr = getNetworkMgr()
-    if not NetworkMgr then return icon_off end
+    if not NetworkMgr then return false end
     local ok_state, wifi_on = pcall(function() return NetworkMgr:isWifiOn() end)
-    if ok_state and wifi_on then return icon_on end
-    return icon_off
+    return ok_state and wifi_on == true
 end
-
-local _wifi_action_live = { id = "wifi_toggle", label = "", icon = "" }
 
 function M.getActionById(id)
     local QA = package.loaded["features/sui_quickactions"]
         or require("features/sui_quickactions")
     local entry = QA.getEntry(id)
     if entry and not entry.id then
-        return { id = id, label = entry.label, icon = entry.icon }
+        -- entry.dim carries the resolved on/off state for actions with an
+        -- is_active hook (e.g. wifi_toggle, night_mode) — keep it so callers
+        -- can dim the icon via UI.wrapDimmable, same as every other QA
+        -- consumer (see features/sui_quickactions.lua header comment).
+        return { id = id, label = entry.label, icon = entry.icon, dim = entry.dim }
     end
     return entry or M.ALL_ACTIONS[1]
 end
@@ -765,6 +765,33 @@ function M.setThumbScale(pct, mod_id, pfx)
     SUISettings:set(_thumbKey(mod_id, pfx), _clamp(pct))
 end
 
+-- Element Scale — like Thumb Scale, but keyed by an extra `elem` name, for
+-- modules with more than one independently-sizeable sub-element (e.g. the
+-- clock module's clock face, date text, and battery text).
+local ELEM_SCALE_KEY_SUFFIX = "_elem_scale"
+
+local function _elemKey(mod_id, elem, pfx)
+    return (pfx or "simpleui_hs_") .. (mod_id or "") .. "_" .. (elem or "") .. ELEM_SCALE_KEY_SUFFIX
+end
+
+function M.getElemScale(mod_id, elem, pfx)
+    local v = SUISettings:get(_elemKey(mod_id, elem, pfx))
+    local n = tonumber(v)
+    if not n then return 1.0 end
+    return _clamp(n) / 100
+end
+
+function M.getElemScalePct(mod_id, elem, pfx)
+    local v = SUISettings:get(_elemKey(mod_id, elem, pfx))
+    local n = tonumber(v)
+    if not n then return SCALE_DEF end
+    return _clamp(n)
+end
+
+function M.setElemScale(pct, mod_id, elem, pfx)
+    SUISettings:set(_elemKey(mod_id, elem, pfx), _clamp(pct))
+end
+
 -- Label Scale
 function M.getLabelScale()
     local v = SUISettings:get(LABEL_SCALE_KEY)
@@ -831,6 +858,11 @@ function M.resetAllScales(pfx, pfx_qa)
             SUISettings:del((pfx or "simpleui_hs_") .. mod.id .. "_scale")
             SUISettings:del((pfx or "simpleui_hs_") .. mod.id .. THUMB_SCALE_KEY_SUFFIX)
             SUISettings:del(_itemLabelKey(mod.id, pfx))
+            if mod.id == "clock" then
+                SUISettings:del((pfx or "simpleui_hs_") .. "clock_clock_elem_scale")
+                SUISettings:del((pfx or "simpleui_hs_") .. "clock_date_elem_scale")
+                SUISettings:del((pfx or "simpleui_hs_") .. "clock_batt_elem_scale")
+            end
         end
     end
     if pfx_qa then
@@ -1687,6 +1719,22 @@ function M.invalidateTopbarConfigCache() _topbar_cfg_menu_cache = nil end
 -- Stats Database
 local _SQ3, _lfs_mod, _indexes_created = nil, nil, false
 function M.getStatsDbPath() return DataStorage:getSettingsDir() .. "/statistics.sqlite3" end
+
+-- Single source of truth for resolving a book's `md5` (partial_md5_checksum)
+-- to its `book.id` in statistics.sqlite3. A %s placeholder for the md5
+-- value — meant to be embedded via string.format(), either standalone or
+-- nested inside a larger query (e.g. a CTE), not executed as-is.
+--
+-- ORDER BY last_open DESC: the same file can end up with more than one row
+-- in `book` (e.g. after being moved/renamed and re-indexed). Ordering by
+-- last_open picks the row that was most recently active, deterministically,
+-- instead of whichever row a plain LIMIT 1 happens to visit first.
+--
+-- Every query in this plugin that resolves a book id from an md5 should go
+-- through this constant rather than inlining the WHERE/ORDER BY itself, so
+-- the tie-break rule only ever needs to change in one place.
+M.BOOK_ID_BY_MD5_SQL = "SELECT id FROM book WHERE md5 = '%s' ORDER BY last_open DESC LIMIT 1"
+
 function M.openStatsDB()
     if not _SQ3 then
         local ok, s = pcall(require, "lua-ljsqlite3/init")
@@ -1702,6 +1750,15 @@ function M.openStatsDB()
     if not _lfs_mod.attributes(db_path, "mode") then return nil end
     local ok, conn = pcall(_SQ3.open, db_path)
     if not (ok and conn) then return nil end
+    -- statistics.sqlite3 is also written to by KOReader's own ReadingStats
+    -- plugin during an active reading session. Without a busy timeout, a
+    -- query that lands while that write is in progress fails immediately
+    -- with "database is locked" instead of waiting for it to finish; the
+    -- caller then silently keeps whatever it had cached before. Setting a
+    -- busy timeout here makes SQLite retry internally for up to the given
+    -- window before giving up, so a transient write no longer surfaces as a
+    -- query failure.
+    pcall(function() conn:exec("PRAGMA busy_timeout = 3000;") end)
     if not _indexes_created then
         local idx_ok = pcall(function()
             conn:exec("CREATE INDEX IF NOT EXISTS idx_simpleui_book_md5 ON book(md5);")
@@ -1932,7 +1989,7 @@ function M.applyFirstRunDefaults()
     def(PFX .. "coverdeck_show_title",          true)
     def(PFX .. "coverdeck_show_author",         false)
     def(PFX .. "coverdeck_show_progress",       true)
-    def(PFX .. "coverdeck_show_percent",        false)
+    def(PFX .. "coverdeck_show_percent",        true)
     def(PFX .. "coverdeck_show_book_days",      false)
     def(PFX .. "coverdeck_show_book_time",      false)
     def(PFX .. "coverdeck_show_book_remaining", false)

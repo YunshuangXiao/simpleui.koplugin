@@ -64,7 +64,6 @@ local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 
 
 
-local _CLR_TEXT_QUOTE = Blitbuffer.COLOR_BLACK
 
 
 
@@ -907,7 +906,7 @@ local function buildWidget(inner_w, text_str, attr_str, face_quote, face_attr, v
     end
 
     local vg = VerticalGroup:new{ align = "center" }
-    vg[#vg+1] = makeTBW(text_str, face_quote, clr_quote or _CLR_TEXT_QUOTE, nil)
+    vg[#vg+1] = makeTBW(text_str, face_quote, clr_quote or SUIStyle.COLOR.text_primary, nil)
     if attr_str and attr_str ~= "" then
         vg[#vg+1] = vspan_gap
         vg[#vg+1] = makeTBW(attr_str, face_attr,  clr_attr  or CLR_TEXT_SUB,    true)
@@ -1160,12 +1159,8 @@ function M.build(w, ctx)
 
     local vspan_gap  = VerticalSpan:new{ width = quote_gap }
 
-    -- Theme: when fg is set use it for all text; otherwise fall back to module defaults.
-    local ok_ss, SUIStyle  = pcall(require, "features/sui_style")
-    local _theme_fg        = ok_ss and SUIStyle and SUIStyle.getThemeColor("fg")
-    local _theme_secondary = ok_ss and SUIStyle and SUIStyle.getThemeColor("text_secondary")
-    local _clr_quote       = _theme_fg or _CLR_TEXT_QUOTE
-    local _clr_attr        = _theme_secondary or _theme_fg or CLR_TEXT_SUB
+    local _clr_quote       = SUIStyle.COLOR.text_primary
+    local _clr_attr        = CLR_TEXT_SUB
 
     local inner_w = w - PAD * 2
 

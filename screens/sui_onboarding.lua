@@ -55,7 +55,7 @@ function Onboarding.show(on_finish)
                     text    = _("Choose your initial layout"),
                     face    = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_TITLE)),
                     bold    = true,
-                    fgcolor = SUIStyle.getThemeColor("fg") or Blitbuffer.COLOR_BLACK,
+                    fgcolor = SUIStyle.COLOR.text_primary,
                 },
                 VerticalSpan:new{ width = ctx.SZ(Screen:scaleBySize(4)) },
                 TextBoxWidget:new{
@@ -63,7 +63,7 @@ function Onboarding.show(on_finish)
                     face      = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_BODY)),
                     width     = iw - ctx.SZ(Screen:scaleBySize(40)),
                     alignment = "left",
-                    fgcolor   = SUIStyle.getThemeColor("text_secondary") or Blitbuffer.COLOR_DARK_GRAY,
+                    fgcolor   = SUIStyle.COLOR.text_secondary,
                 },
             },
         })
@@ -126,7 +126,7 @@ function Onboarding.show(on_finish)
                     text    = _("Make it yours"),
                     face    = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_TITLE)),
                     bold    = true,
-                    fgcolor = SUIStyle.getThemeColor("fg") or Blitbuffer.COLOR_BLACK,
+                    fgcolor = SUIStyle.COLOR.text_primary,
                 },
                 VerticalSpan:new{ width = ctx.SZ(Screen:scaleBySize(4)) },
                 TextBoxWidget:new{
@@ -134,7 +134,7 @@ function Onboarding.show(on_finish)
                     face      = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_BODY)),
                     width     = iw - ctx.SZ(Screen:scaleBySize(40)),
                     alignment = "left",
-                    fgcolor   = SUIStyle.getThemeColor("text_secondary") or Blitbuffer.COLOR_DARK_GRAY,
+                    fgcolor   = SUIStyle.COLOR.text_secondary,
                 },
             },
         })
@@ -175,9 +175,9 @@ function Onboarding.show(on_finish)
         }
 
         local Size      = require("ui/size")
-        local fg        = SUIStyle.getThemeColor("fg")             or Blitbuffer.COLOR_BLACK
-        local fg_sub    = SUIStyle.getThemeColor("text_secondary") or Blitbuffer.COLOR_DARK_GRAY
-        local sep_color = SUIStyle.getThemeColor("separator")      or Blitbuffer.COLOR_LIGHT_GRAY
+        local fg        = SUIStyle.COLOR.text_primary
+        local fg_sub    = SUIStyle.COLOR.text_secondary
+        local sep_color = SUIStyle.COLOR.gray_soft
 
         local tip_vg = VerticalGroup:new{ align = "left" }
 

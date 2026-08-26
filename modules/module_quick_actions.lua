@@ -1,28 +1,22 @@
 -- module_quick_actions.lua — Simple UI
 -- Module: Quick Actions Row (dynamic instances).
--- Replaces quickactionswidget.lua — contains all of the widget code.
 -- Exposes M.instanciable = true and M.makeInstance(id) for the registry.
 
-local Blitbuffer      = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device          = require("device")
 local Font            = require("ui/font")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local Geom            = require("ui/geometry")
-local GestureRange    = require("ui/gesturerange")
 local UIManager       = require("ui/uimanager")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan  = require("ui/widget/horizontalspan")
-local ImageWidget     = require("ui/widget/imagewidget")
-local InputContainer  = require("ui/widget/container/inputcontainer")
 local TextWidget      = require("ui/widget/textwidget")
-local VerticalGroup   = require("ui/widget/verticalgroup")
-local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
 local _ = require("infra/sui_i18n").translate
 local N_ = require("infra/sui_i18n").ngettext
 local Config          = require("infra/sui_config")
 local QA              = require("features/sui_quickactions")
+local QARenderer      = require("engines/sui_quickactions_render")
 
 local UI  = require("infra/sui_core")
 local SUISettings = require("infra/sui_store")
@@ -33,8 +27,6 @@ local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 
 local _BASE_PH_FS = SUIStyle.FS_BODY    -- 18: placeholder text
 
-local _CLR_BAR_FG  = Blitbuffer.gray(0.75)
-local _CLR_FLAT_BG = Blitbuffer.gray(0.08)
 
 local _BASE_ICON_SZ   = Screen:scaleBySize(52)
 local _BASE_FRAME_PAD = Screen:scaleBySize(18)
@@ -124,30 +116,15 @@ local function _getQADims(scale, inner_w)
     local frame_pad = math.max(4,  math.floor(base.frame_pad * scale))
     local lbl_sp    = math.max(1,  math.floor(_BASE_LBL_SP    * scale))
     local lbl_h     = math.max(8,  math.floor(_BASE_LBL_H     * scale))
-    local icon_gap  = math.max(4, math.floor(base.icon_gap * scale))
-    local frame_sz  = icon_sz + frame_pad * 2
-
-    if inner_w and inner_w > 0 then
-        local needed = MAX_QA_ITEMS * frame_sz + (MAX_QA_ITEMS - 1) * _MIN_ICON_GAP
-        if needed > inner_w then
-            local max_frame = math.floor((inner_w - (MAX_QA_ITEMS - 1) * _MIN_ICON_GAP) / MAX_QA_ITEMS)
-            max_frame = math.max(16, max_frame)
-            local ratio = max_frame / frame_sz
-            icon_sz   = math.max(16, math.floor(icon_sz   * ratio))
-            frame_pad = math.max(4,  math.floor(frame_pad * ratio))
-            frame_sz  = icon_sz + frame_pad * 2
-        end
-    end
-
     return {
         icon_sz   = icon_sz,
         frame_pad = frame_pad,
-        frame_sz  = frame_sz,
+        frame_sz  = icon_sz + frame_pad * 2,
         corner_r  = math.max(4, math.floor(base.corner_r * scale)),
         lbl_sp    = lbl_sp,
         lbl_h     = lbl_h,
         lbl_fs    = math.max(6, math.floor(_BASE_LBL_FS * scale)),
-        icon_gap  = icon_gap,
+        icon_gap  = math.max(4, math.floor(base.icon_gap * scale)),
     }
 end
 
@@ -155,14 +132,6 @@ end
 -- Action entry resolution and QA validity cache
 -- Delegated to sui_quickactions (single source of truth).
 -- ---------------------------------------------------------------------------
-
-local function getEntry(action_id)
-    return QA.getEntry(action_id)
-end
-
-local function getCustomQAValid()
-    return QA.getCustomQAValid()
-end
 
 local function invalidateCustomQACache()
     QA.invalidateCustomQACache()
@@ -172,13 +141,13 @@ end
 -- Core widget builder (shared by all slots)
 -- ---------------------------------------------------------------------------
 local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg, colors, align, text_gap_px)
-    local clr_blk = colors and colors.blk or Blitbuffer.COLOR_BLACK
+    local clr_blk = colors and colors.blk or SUIStyle.COLOR.text_primary
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
     local ph_fs = math.max(8, math.floor(_BASE_PH_FS * (d.frame_sz / (_BASE_ICON_SZ + _BASE_FRAME_PAD * 2))))
     local function _placeholder()
         local hold_on = SUISettings:nilOrTrue("simpleui_hs_settings_on_hold")
         local ph_text = hold_on and _("No actions configured  —  long press to configure")
-                                 or _("No actions configured")
+            or _("No actions configured")
         return CenterContainer:new{
             dimen = Geom:new{ w = w, h = d.frame_sz },
             TextWidget:new{
@@ -192,16 +161,7 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
 
     if not action_ids or #action_ids == 0 then return _placeholder() end
 
-    local valid_ids = {}
-    local cqa_valid = getCustomQAValid()
-    for _, aid in ipairs(action_ids) do
-        if aid:match("^custom_qa_%d+$") then
-            if cqa_valid[aid] then valid_ids[#valid_ids + 1] = aid end
-        elseif QA.isBuiltin(aid) then
-            valid_ids[#valid_ids + 1] = aid
-        end
-        -- unknown IDs (neither a live custom QA nor a known built-in) are silently dropped
-    end
+    local valid_ids = QA.filterValidIds(action_ids)
     if #valid_ids == 0 then return _placeholder() end
     local n        = #valid_ids
     local inner_w  = w - PAD * 2
@@ -213,160 +173,51 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
     align = align or "current"
 
     local row = HorizontalGroup:new{ align = "top" }
+    local left_off
 
-    for i = 1, n do
-        local aid   = valid_ids[i]
-        local entry = getEntry(aid)
-
-        if is_text_only then
-            local text_widget = TextWidget:new{
-                text    = entry.label,
-                face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
-                fgcolor = clr_blk,
-                truncate_with_ellipsis = true,
-            }
-            local tw_size = text_widget:getSize()
-            local tappable = InputContainer:new{
-                dimen      = Geom:new{ w = tw_size.w, h = tw_size.h },
-                [1]        = text_widget,
-                _on_tap_fn = on_tap_fn,
-                _action_id = aid,
-            }
-            tappable.ges_events = {
-                TapQA = {
-                    GestureRange:new{
-                        ges   = "tap",
-                        range = function() return tappable.dimen end,
-                    },
-                },
-            }
-            function tappable:onTapQA()
-                if self._on_tap_fn then self._on_tap_fn(self._action_id) end
-                return true
-            end
-
-            if i > 1 then
-                local sep_text = TextWidget:new{
-                    text    = "丨",
-                    face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
-                    fgcolor = clr_sub,
-                }
-                local sep_size = sep_text:getSize()
-                if text_gap_px and text_gap_px > 0 then
-                    local group = HorizontalGroup:new{ align = "center" }
-                    group[#group + 1] = HorizontalSpan:new{ width = text_gap_px }
-                    group[#group + 1] = sep_text
-                    group[#group + 1] = HorizontalSpan:new{ width = text_gap_px }
-                    row[#row + 1] = group
-                else
-                    row[#row + 1] = sep_text
-                end
-            end
-            row[#row + 1] = tappable
-        else
-            local icon_sz_used = d.icon_sz
-            local icon_widget
-            local nerd_char = Config.nerdIconChar(entry.icon)
-            if nerd_char then
-                icon_widget = CenterContainer:new{
-                    dimen = Geom:new{ w = icon_sz_used, h = icon_sz_used },
-                    TextWidget:new{
-                        text    = nerd_char,
-                        face    = Font:getFace(SUIStyle.FACE_ICONS, math.floor(icon_sz_used * 0.6)),
-                        fgcolor = clr_blk,
-                        padding = 0,
-                    },
-                }
-            else
-                local iw = ImageWidget:new{
-                    file    = entry.icon,
-                    width   = icon_sz_used,
-                    height  = icon_sz_used,
-                    is_icon = true,
-                    alpha   = true,
-                }
-                if pcall(function() iw:_render() end) then
-                    icon_widget = iw
-                else
-                    iw:free()
-                    icon_widget = CenterContainer:new{
-                        dimen = Geom:new{ w = icon_sz_used, h = icon_sz_used },
-                        TextWidget:new{
-                            text    = (entry.label and entry.label:sub(1,1):upper() or "?"),
-                            face    = Font:getFace("cfont", math.floor(icon_sz_used * 0.55)),
-                            fgcolor = clr_blk,
-                        },
-                    }
-                end
-            end
-
-            local is_bare = (shape == "bare")
-            local corner_r = is_bare and 0 or ((shape == "round") and math.floor(d.frame_sz / 2) or d.corner_r)
-            local current_border = (not is_bare and (bg == "solid" or bg == "transparent")) and SUIStyle.BORDER_SZ or 0
-            local bg_color = nil
-            if not is_bare then
-                if bg == "flat" then bg_color = _CLR_FLAT_BG
-                elseif bg == "solid" then bg_color = Blitbuffer.COLOR_WHITE end
-            end
-
-            local icon_frame = FrameContainer:new{
-                bordersize = current_border,
-                color      = current_border > 0 and _CLR_BAR_FG or nil,
-                background = bg_color,
-                radius     = corner_r,
-                padding    = is_bare and 0 or d.frame_pad,
-                icon_widget,
-            }
-
-            local col = VerticalGroup:new{ align = "center" }
-            col[#col + 1] = icon_frame
-            if show_labels then
-                col[#col + 1] = VerticalSpan:new{ width = lbl_sp }
-                col[#col + 1] = CenterContainer:new{
-                    dimen = Geom:new{ w = d.frame_sz, h = lbl_h },
-                    TextWidget:new{
-                        text    = entry.label,
-                        face    = Font:getFace(SUIStyle.FACE_REGULAR, d.lbl_fs),
-                        fgcolor = clr_blk,
-                        max_width = d.frame_sz,
-                        truncate_with_ellipsis = true,
-                    },
-                }
-            end
-
-            local col_h    = d.frame_sz + lbl_sp + lbl_h
-            local tappable = InputContainer:new{
-                dimen      = Geom:new{ w = d.frame_sz, h = col_h },
-                [1]        = col,
-                _on_tap_fn = on_tap_fn,
-                _action_id = aid,
-            }
-            tappable.ges_events = {
-                TapQA = {
-                    GestureRange:new{
-                        ges   = "tap",
-                        range = function() return tappable.dimen end,
-                    },
-                },
-            }
-            function tappable:onTapQA()
-                if self._on_tap_fn then self._on_tap_fn(self._action_id) end
-                return true
-            end
-
-            if i > 1 then
-                local gap = math.floor((inner_w - n * d.frame_sz) / (n - 1))
-                row[#row + 1] = HorizontalSpan:new{ width = math.max(_MIN_ICON_GAP, gap) }
-            end
-            row[#row + 1] = tappable
-        end
-    end
-
-    local left_off = 0
     if is_text_only then
-        local row_w = row:getSize().w
-        left_off = math.floor((inner_w - row_w) / 2)
+        local items = {}
+        local packed_w = 0
+
+        for i = 1, n do
+            local aid = valid_ids[i]
+
+            if i > 1 then
+                local sep = QARenderer.buildTextSeparator{
+                    lbl_face = SUIStyle.FACE_REGULAR,
+                    lbl_fs   = d.lbl_fs,
+                    fgcolor  = clr_sub,
+                    gap_px   = text_gap_px,
+                }
+                items[#items + 1] = sep
+                packed_w = packed_w + sep:getSize().w
+            end
+
+            local tappable = QARenderer.buildCell(aid, {
+                frame_sz       = d.frame_sz,
+                shape          = shape,
+                fgcolor        = clr_blk,
+                lbl_fs         = d.lbl_fs,
+                on_tap_fn      = on_tap_fn,
+                tap_event_name = "TapQA",
+            })
+            items[#items + 1] = tappable
+            packed_w = packed_w + tappable:getSize().w
+        end
+
+        if align == "right" then
+            left_off = math.max(0, inner_w - packed_w)
+        elseif align == "left" then
+            left_off = 0
+        else -- "current": 整组作为一个整体居中
+            left_off = math.max(0, math.floor((inner_w - packed_w) / 2))
+        end
+
+        for _, item in ipairs(items) do
+            row[#row + 1] = item
+        end
     else
+        local gap
         if align == "left" or align == "right" then
             -- Packed layout: icons keep their normal size (d.frame_sz, set by
             -- the module's Scale setting — untouched here) but sit next to each
@@ -378,7 +229,34 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d, shape, bg
         else
             -- "current" — original behaviour, unchanged: icons spread evenly
             -- across the full row width (n>1), a single icon is centred.
+            gap      = n <= 1 and 0 or math.floor((inner_w - n * d.frame_sz) / (n - 1))
             left_off = n == 1 and math.floor((inner_w - d.frame_sz) / 2) or 0
+        end
+
+        for i = 1, n do
+            local aid = valid_ids[i]
+            local tappable = QARenderer.buildCell(aid, {
+                icon_sz        = d.icon_sz,
+                frame_sz       = d.frame_sz,
+                frame_pad      = d.frame_pad,
+                corner_r       = d.corner_r,
+                shape          = shape,
+                bg             = bg,
+                fgcolor        = clr_blk,
+                show_label     = show_labels,
+                lbl_sp         = lbl_sp,
+                lbl_h          = lbl_h,
+                lbl_fs         = d.lbl_fs,
+                lbl_max_width  = d.frame_sz,
+                lbl_truncate   = true,
+                on_tap_fn      = on_tap_fn,
+                tap_event_name = "TapQA",
+            })
+
+            if i > 1 then
+                row[#row + 1] = HorizontalSpan:new{ width = gap }
+            end
+            row[#row + 1] = tappable
         end
     end
 
@@ -678,32 +556,32 @@ local function makeInstance(inst_id)
         return string.format(N_("(%d/%d — %d left)", "(%d/%d — %d left)", rem), n, MAX_QA, rem)
     end
 
+    -- Base text-gap size (px) at Scale=100%, Text spacing=100% — same
+    -- baseline convention as _BASE_PH_FS/_BASE_ICON_SZ/_BASE_FRAME_PAD, so
+    -- the gap scales consistently with module Scale, and Text spacing (%)
+    -- then applies on top of that.
+    local _BASE_TEXT_GAP_PX = 10
+
     function S.build(w, ctx)
         if not S.isEnabled(ctx.pfx) then return nil end
-        -- Items and labels are stored under pfx_qa (the short QA prefix) so
-        -- that the menu writers (makeQAMenu / makeQAMenuFallback) and the widget
-        -- builder read/write the same settings key.
         local qa_pfx      = ctx.pfx_qa or ctx.pfx
         local items_key   = qa_pfx .. slot_suffix .. "_items"
         local labels_key  = qa_pfx .. slot_suffix .. "_labels"
         local qa_ids      = SUISettings:readSetting(items_key) or {}
         local show_labels = SUISettings:nilOrTrue(labels_key)
         local lf          = ctx.landscape_factor or 1
-        local d           = _getQADims(Config.getModuleScale(S.id, ctx.pfx) * lf, w - PAD * 2)
+        local d           = _getQADims(Config.getModuleScaleRaw(S.id, ctx.pfx), w - PAD * 2)
         local lbl_scale = Config.getItemLabelScale(S.id, ctx.pfx) * lf
         d.lbl_fs = math.max(6, math.floor(d.lbl_fs * lbl_scale))
-        local ok_ss, SUIStyle  = pcall(require, "features/sui_style")
-        local _theme_fg        = ok_ss and SUIStyle and SUIStyle.getThemeColor("fg")
-        local _theme_secondary = ok_ss and SUIStyle and SUIStyle.getThemeColor("text_secondary")
-        local colors = (_theme_fg or _theme_secondary) and {
-            blk = _theme_fg or Blitbuffer.COLOR_BLACK,
-            sub = _theme_secondary or _theme_fg or CLR_TEXT_SUB,
-        } or nil
-        -- return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d, getShape(ctx.pfx), getBg(ctx.pfx), colors, getAlign(ctx.pfx))
-        local text_gap_pct = S.getTextGapPct(ctx.pfx_qa or ctx.pfx)
-        local base_gap = Screen:scaleBySize(24)
-        local text_gap_px = math.max(0, math.floor(base_gap * text_gap_pct / 100))
-        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d, getShape(ctx.pfx), getBg(ctx.pfx), colors, getAlign(ctx.pfx), text_gap_px)
+
+        -- text_gap_px: base px, scaled by the same frame_sz ratio ph_fs uses
+        -- (so it tracks module Scale), then multiplied by the user's
+        -- Text spacing % on top.
+        local gap_scale     = d.frame_sz / (_BASE_ICON_SZ + _BASE_FRAME_PAD * 2)
+        local text_gap_pct  = S.getTextGapPct(qa_pfx)
+        local text_gap_px   = math.max(0, math.floor(_BASE_TEXT_GAP_PX * gap_scale * (text_gap_pct / 100)))
+
+        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d, getShape(ctx.pfx), getBg(ctx.pfx), nil, getAlign(ctx.pfx), text_gap_px)
     end
 
     function S.getHeight(ctx)
@@ -714,9 +592,10 @@ local function makeInstance(inst_id)
         -- so estimate one the same way other modules in this codebase do —
         -- ctx.col_w/ctx.inner_w when available, otherwise a screen-width
         -- estimate — so the height reported here doesn't diverge from what
-        -- build() actually paints once the fit baseline kicks in.
+        -- build() actually paints once the fit baseline kicks in. Uses the
+        -- RAW module scale for the same reason as S.build above.
         local w_estimate = ctx.col_w or ctx.inner_w or (Screen:getWidth() - PAD * 2)
-        local d           = _getQADims(Config.getModuleScale(S.id, ctx.pfx) * (ctx.landscape_factor or 1), w_estimate - PAD * 2)
+        local d           = _getQADims(Config.getModuleScaleRaw(S.id, ctx.pfx), w_estimate - PAD * 2)
         return (show_labels and (d.frame_sz + d.lbl_sp + d.lbl_h) or d.frame_sz)
     end
 

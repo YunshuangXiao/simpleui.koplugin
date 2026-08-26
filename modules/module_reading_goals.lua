@@ -33,8 +33,6 @@ local LABEL_H      = UI.LABEL_H
 local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 
 -- Colours
-local _CLR_TEXT_LBL = Blitbuffer.COLOR_BLACK
-local _CLR_TEXT_PCT = Blitbuffer.COLOR_BLACK
 
 -- Default layout base dimensions (scaled at render time via _scaledDims)
 local _BASE_ROW_FS  = SUIStyle.FS_BODY     -- 18: row text
@@ -226,7 +224,7 @@ local function _buildInnerCompact(inner_w, lbl_w, pct_w, label_str, pct, pct_str
         return RightContainer:new{ dimen = Geom:new{ w = col_w, h = ROW_H }, child }
     end
 
-    local eff_blk = clr_blk or _CLR_TEXT_LBL
+    local eff_blk = clr_blk or SUIStyle.COLOR.text_primary
     return HorizontalGroup:new{
         align = "center",
         vcenter_left(UI.makeColoredText{
@@ -344,7 +342,7 @@ end
 -- Used by the Default layout. Accepts a pre-computed dims table from _scaledDims.
 local function buildGoalRow(inner_w, label_str, pct, pct_str, detail_str, on_tap, d, clr_sub_eff, clr_blk_eff)
     clr_sub_eff = clr_sub_eff or CLR_TEXT_SUB
-    clr_blk_eff = clr_blk_eff or _CLR_TEXT_LBL
+    clr_blk_eff = clr_blk_eff or SUIStyle.COLOR.text_primary
     local block = _buildInnerDefault(inner_w, label_str, pct, pct_str, detail_str, d, clr_sub_eff, clr_blk_eff)
 
     local frame = FrameContainer:new{
@@ -557,7 +555,17 @@ function M.build(w, ctx)
     if not show_ann and not show_mon and not show_day then return nil end
 
     local ok, res = pcall(function()
-    local inner_w = w - PAD * 2
+    local scale = Config.getModuleScale("reading_goals", ctx.pfx) * (ctx.landscape_factor or 1)
+    -- Frame border / solid background — same optional box every other
+    -- homescreen module offers (module_currently.lua, module_heatmap.lua):
+    -- a border, a filled background, or both, each adding PAD to every edge.
+    -- Computed up front so inner_w below already reserves room for the
+    -- border, keeping the box's real outer width equal to `w`.
+    local box = SUIStyle.computeBox(
+        SUISettings:isTrue(ctx.pfx .. "reading_goals_show_frame"),
+        SUISettings:isTrue(ctx.pfx .. "reading_goals_solid_bg"),
+        scale, PAD)
+    local inner_w = w - box.inset_h
     -- Stats pre-fetched by StatsProvider and passed via ctx.stats.
     local sp         = ctx.stats or {}
     local books_read = sp.books_year  or 0
@@ -569,14 +577,8 @@ function M.build(w, ctx)
     local compact = isCompact()
 
     local rg_update_funcs = {}
-    -- Theme
-    local ok_ss, SUIStyle  = pcall(require, "features/sui_style")
-    local _theme_fg        = ok_ss and SUIStyle and SUIStyle.getThemeColor("fg")
-    local _theme_secondary = ok_ss and SUIStyle and SUIStyle.getThemeColor("text_secondary")
-    local CLR_TEXT_BLK_EFF = _theme_fg or _CLR_TEXT_LBL
-    local CLR_TEXT_SUB_EFF = _theme_secondary or _theme_fg or CLR_TEXT_SUB
-
-    local scale = Config.getModuleScale("reading_goals", ctx.pfx) * (ctx.landscape_factor or 1)
+    local CLR_TEXT_BLK_EFF = SUIStyle.COLOR.text_primary
+    local CLR_TEXT_SUB_EFF = CLR_TEXT_SUB
 
     if compact then
         -- scale already includes ctx.landscape_factor.
@@ -705,31 +707,7 @@ function M.build(w, ctx)
         end
     end
 
-    local show_frame = SUISettings:isTrue(ctx.pfx .. "reading_goals_show_frame")
-    local solid_bg   = SUISettings:isTrue(ctx.pfx .. "reading_goals_solid_bg")
-    local has_box    = show_frame or solid_bg
-    local border_sz  = show_frame and SUIStyle.BORDER_SZ or 0
-    local radius     = has_box and math.floor(Screen:scaleBySize(12) * scale) or 0
-    local border_color = Blitbuffer.gray(0.72)
-    if ok_ss and SUIStyle then
-        border_color = SUIStyle.getThemeColor("separator") or border_color
-    end
-    local bg_color = nil
-    if solid_bg then
-        bg_color = (ok_ss and SUIStyle and SUIStyle.getThemeColor("bg")) or Blitbuffer.COLOR_WHITE
-    end
-
-    local final_frame = FrameContainer:new{
-        bordersize    = border_sz,
-        radius        = radius,
-        color         = border_color,
-        background    = bg_color,
-        padding       = 0,
-        padding_left  = PAD, padding_right = PAD,
-        padding_top   = has_box and PAD or 0,
-        padding_bottom= has_box and PAD or 0,
-        VerticalGroup:new(rows_children),
-    }
+    local final_frame = SUIStyle.wrapBox(VerticalGroup:new(rows_children), box)
     final_frame._rg_update_funcs = rg_update_funcs
     return final_frame
     end)
@@ -741,7 +719,7 @@ function M.build(w, ctx)
             UI.makeColoredText{
                 text = _("Error in Reading Goals: check crash.log"),
                 face = Font:getFace(SUIStyle.FACE_REGULAR, 15),
-                fgcolor = Blitbuffer.COLOR_BLACK,
+                fgcolor = SUIStyle.COLOR.text_primary,
                 width = w - PAD * 2,
                 alignment = "center",
             }
@@ -788,6 +766,12 @@ function M.getHeight(_ctx)
     end
     if SUISettings:isTrue(pfx .. "reading_goals_show_frame") or SUISettings:isTrue(pfx .. "reading_goals_solid_bg") then
         h = h + PAD * 2
+    end
+    -- Mirrors build()'s wrapped FrameContainer: bordersize is drawn outside
+    -- the padding, so the border itself (not just the padding) grows the
+    -- real widget by border_sz * 2 pixels whenever the frame is on.
+    if SUISettings:isTrue(pfx .. "reading_goals_show_frame") then
+        h = h + SUIStyle.BORDER_SZ * 2
     end
     return label_h + h
 end

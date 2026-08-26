@@ -336,7 +336,6 @@ local _BASE_DIR_FS  = SUIStyle.FS_SUBTITLE -- 20: directory name label ceiling f
 local _EDGE_THICK  = math.max(1, Screen:scaleBySize(3))
 local _EDGE_MARGIN = math.max(1, Screen:scaleBySize(1))
 local _SPINE_W     = _EDGE_THICK * 2 + _EDGE_MARGIN * 2
-local _SPINE_COLOR = Blitbuffer.gray(0.70)
 
 local _LATERAL_PAD        = Screen:scaleBySize(10)
 local _VERTICAL_PAD       = Screen:scaleBySize(4)
@@ -1195,7 +1194,7 @@ function M.install()
             end
 
             self._fc_underline_color  = M.getHideUnderline()
-                and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+                and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
             self._fc_overlay_pages    = M.getOverlayPages()
             self._fc_overlay_series   = M.getOverlaySeries()
             self._fc_overlay_progress = M.getProgressMode() == "banner"
@@ -1627,7 +1626,7 @@ function M.install()
                     TextWidget:new{
                         text    = nerd_char,
                         face    = Font:getFace(SUIStyle.FACE_ICONS, math.floor(icon_size * 0.85)),
-                        fgcolor = Blitbuffer.COLOR_BLACK,
+                        fgcolor = SUIStyle.COLOR.text_primary,
                         padding = 0,
                     },
                 }
@@ -1669,7 +1668,7 @@ function M.install()
         local bg_canvas = FrameContainer:new{
             padding    = 0,
             bordersize = 0,
-            background = Blitbuffer.COLOR_WHITE,
+            background = SUIStyle.COLOR.surface,
             dimen      = Geom:new{ w = img_w, h = img_h },
             icon_widget,
         }
@@ -1690,7 +1689,7 @@ function M.install()
     MosaicMenuItem._simpleui_fc_orig_onFocus = MosaicMenuItem.onFocus
     function MosaicMenuItem:onFocus()
         self._underline_container.color = self._fc_underline_color
-            or (M.getHideUnderline() and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK)
+            or (M.getHideUnderline() and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary)
         return true
     end
 
@@ -1772,7 +1771,7 @@ function M.install()
                     local iy        = self.height - math.ceil((self.height - tgt.dimen.h) / 2) - cm_size
                     local rect_size = cm_size - tgt.bordersize
                     bb:paintRect(x + ix, tgt.dimen.y + iy + tgt.bordersize,
-                                 rect_size, rect_size, Blitbuffer.COLOR_GRAY)
+                                 rect_size, rect_size, SUIStyle.COLOR.gray_soft)
                     cm_widget:paintTo(bb, x + ix, y + iy)
                 end
             end
@@ -1912,7 +1911,7 @@ function M.install()
                     -- Repaint cover border over ribbon so it isn't obscured.
                 local brd = SUIStyle.BADGE_BORDER_SZ
                     if brd > 0 then
-                        local bclr = Blitbuffer.COLOR_BLACK
+                        local bclr = SUIStyle.COLOR.text_primary
                         bb:paintRect(cover_left,  fy, fw,  brd,  bclr)  -- top edge
                         bb:paintRect(cover_right - brd, fy, brd, fh, bclr)  -- right edge
                     end

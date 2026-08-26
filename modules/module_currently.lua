@@ -47,7 +47,6 @@ local function getSH()
 end
 
 -- Colours
-local _CLR_DARK   = Blitbuffer.COLOR_BLACK
 
 -- Vertical gaps between elements (base values at 100% scale; scaled in build()).
 local _BASE_COVER_GAP  = Screen:scaleBySize(16)  -- between cover and text column
@@ -150,7 +149,7 @@ local function buildProgressBarWithPct(w, pct, bar_h, scale, lbl_scale, face_inl
     local pct_str = string.format("%.0f%%", (pct or 0) * 100)
     -- face_inline is pre-resolved by build(); fallback for direct calls.
     local _face   = face_inline or Font:getFace(SUIStyle.FACE_REGULAR, math.max(7, math.floor(_BASE_INLINEPCT_FS * scale * lbl_scale)))
-    local _fg     = fg_color or _CLR_DARK
+    local _fg     = fg_color or SUIStyle.COLOR.text_primary
 
     local bar = UI.progressBar(bar_w, pct, bar_h)
 
@@ -208,7 +207,7 @@ local function fetchBookStats(md5, shared_conn, ctx, force)
         -- created by openStatsDB() for O(log n) lookup instead of full-table scan.
         local row = conn:exec(string.format([[
             WITH b AS (
-                SELECT id FROM book WHERE md5 = '%s' LIMIT 1
+                %s
             ),
             ps_agg AS (
                 SELECT ps.page,
@@ -224,7 +223,7 @@ local function fetchBookStats(md5, shared_conn, ctx, force)
                 count(*),
                 sum(min(page_dur, %d))
             FROM ps_agg;
-        ]], md5, _MAX_SEC))
+        ]], string.format(Config.BOOK_ID_BY_MD5_SQL, md5), _MAX_SEC))
 
         if row and row[1] and row[1][1] then
             local days   = tonumber(row[1][1]) or 0
@@ -320,6 +319,36 @@ end
 
 local function _getElemOrder(pfx)
     return _resolveElemOrder(SUISettings:readSetting(pfx .. ELEM_ORDER_KEY))
+end
+
+-- ---------------------------------------------------------------------------
+-- Author list rendering
+-- ---------------------------------------------------------------------------
+-- Author strings arrive as a single newline-separated string ("A\nB\nC").
+-- Aligned with KOReader's actual data format. 
+-- _splitAuthors breaks it into names (trimmed, empty tokens dropped). 
+-- _formatAuthors renders the result with these rules:
+-- 1. empty/whitespace input → "Unknown Author";
+-- 2. single author          → returned verbatim;
+-- 3. two or more author     → "Name1 et al."
+--    only the first name is kept, every other co-author is discarded.
+local function _splitAuthors(s)
+    local parts = {}
+    if not s or s == "" then return parts end
+    for piece in (s .. "\n"):gmatch("(.-)\r?\n") do
+        local trimmed = piece:match("^%s*(.-)%s*$")
+        if trimmed and trimmed ~= "" then
+            parts[#parts + 1] = trimmed
+        end
+    end
+    return parts
+end
+
+local function _formatAuthors(authors_str)
+    local parts = _splitAuthors(authors_str)
+    if #parts == 0 then return _("Unknown Author") end
+    if #parts == 1 then return parts[1] end
+    return parts[1] .. _(" et al.")
 end
 
 
@@ -426,7 +455,17 @@ function M.build(w, ctx)
     local c = ctx.cfg and ctx.cfg.currently
     local pfx         = ctx.pfx
     local lf          = ctx.landscape_factor or 1
-    local scale       = (c and c.scale       or Config.getModuleScale("currently", pfx)) * lf
+    local raw_scale   = c and c.scale       or Config.getModuleScale("currently", pfx)
+    local scale       = raw_scale * lf
+    -- Frame border / solid background — same optional box every other
+    -- homescreen module offers (module_heatmap.lua, module_reading_goals.lua):
+    -- a border, a filled background, or both, each adding PAD to every edge.
+    -- Computed up front so tw0 below already reserves room for the border,
+    -- keeping the box's real outer width equal to `w`.
+    local box = SUIStyle.computeBox(
+        SUISettings:isTrue(pfx .. "currently_show_frame"),
+        SUISettings:isTrue(pfx .. "currently_solid_bg"),
+        scale, PAD)
     local raw_thumb_scale = c and c.thumb_scale or Config.getThumbScale("currently", pfx)
     local lbl_scale   = (c and c.lbl_scale   or Config.getItemLabelScale("currently", pfx)) * lf
     local bar_style   = c and c.bar_style   or getBarStyle(pfx)
@@ -453,7 +492,7 @@ function M.build(w, ctx)
     -- module's covers keep the same proportions as module_recent/book grid.
     local _cover_ratio = SH.getDims(1.0, 1.0).COVER_H / SH.getDims(1.0, 1.0).COVER_W
     local D = {}
-    D.COVER_W, D.COVER_H = _computeCoverDims(w, raw_thumb_scale, _cover_ratio)
+    D.COVER_W, D.COVER_H = _computeCoverDims(w, raw_thumb_scale * raw_scale, _cover_ratio)
 
     -- Scale gaps and font sizes (layout scale × text scale where applicable).
     -- See _scaledLayoutDims for the shared formulas (also used by getHeight()).
@@ -507,11 +546,12 @@ function M.build(w, ctx)
         end
     end
 
-    -- Text column width: full width minus both PADs, cover, and cover gap.
-    -- This is the BASE width, computed from the base cover size (D.COVER_W).
-    -- When dynamic cover sizing is enabled, the final width used for the
-    -- text column may differ — see the two-pass layout below.
-    local tw0 = w - PAD - D.COVER_W - cover_gap - PAD
+    -- Text column width: full width minus the box's insets (padding plus
+    -- any active border), cover, and cover gap. This is the BASE width,
+    -- computed from the base cover size (D.COVER_W). When dynamic cover
+    -- sizing is enabled, the final width used for the text column may
+    -- differ — see the two-pass layout below.
+    local tw0 = w - D.COVER_W - cover_gap - box.inset_h
 
     -- Fetch stats once if any stats element is active.
     local bstats
@@ -534,14 +574,11 @@ function M.build(w, ctx)
     end
 
     -- Colour used for placeholder stats text (dimmer than the normal sub-text).
-    local CLR_PLACEHOLDER = Blitbuffer.gray(0.55)
+    local CLR_PLACEHOLDER = SUIStyle.COLOR.text_dim
 
-    -- Theme: when fg is set use it for all text; otherwise fall back to module defaults.
-    local _theme_fg        = SUIStyle.getThemeColor("fg")
-    local _theme_secondary = SUIStyle.getThemeColor("text_secondary")
-    local _CLR_DARK_EFF    = _theme_fg or _CLR_DARK
-    local CLR_TEXT_SUB_EFF = _theme_secondary or _theme_fg or CLR_TEXT_SUB
-    local CLR_PH_EFF       = _theme_secondary or _theme_fg or CLR_PLACEHOLDER
+    local _CLR_DARK_EFF    = SUIStyle.COLOR.text_primary
+    local CLR_TEXT_SUB_EFF = CLR_TEXT_SUB
+    local CLR_PH_EFF       = CLR_PLACEHOLDER
 
     -- Pre-resolve the inline-pct font face once for buildProgressBarWithPct.
     local face_inlinepct = Font:getFace(SUIStyle.FACE_REGULAR,
@@ -635,10 +672,10 @@ function M.build(w, ctx)
             meta[#meta+1] = title_w
             meta_has_content = true
 
-        elseif elem == "author" and show.author and bd.authors and bd.authors ~= "" then
+        elseif elem == "author" and show.author then
             gap_before(author_gap)
             meta[#meta+1] = UI.makeColoredText{
-                text            = bd.authors,
+                text            = _formatAuthors(bd.authors),
                 face            = face_author,
                 fgcolor         = CLR_TEXT_SUB_EFF,
                 width           = tw,
@@ -668,7 +705,7 @@ function M.build(w, ctx)
             -- effect when `height` is set; leaving height nil would make
             -- the widget grow to fit the full text instead of clamping.
             local desc_tbw_line_h = math.floor(1.3 * face_desc.size + 0.5)
-            meta[#meta+1] = TextBoxWidget:new{
+            local desc_args = {
                 text      = bd.description,
                 face      = face_desc,
                 width     = tw,
@@ -677,6 +714,21 @@ function M.build(w, ctx)
                 height_overflow_show_ellipsis = true,
                 fgcolor   = CLR_TEXT_SUB_EFF,
             }
+
+            local desc_w
+            if ctx.has_wallpaper then
+                local ok_tbx, tbx = pcall(UI.makeAlphaTextBox, desc_args)
+                if ok_tbx then
+                    desc_w = tbx
+                else
+                    logger.warn("simpleui: module_currently: makeAlphaTextBox failed, falling back to TextBoxWidget: " .. tostring(tbx))
+                    desc_w = TextBoxWidget:new(desc_args)
+                end
+            else
+                desc_w = TextBoxWidget:new(desc_args)
+            end
+
+            meta[#meta+1] = desc_w
             meta_has_content = true
 
         elseif elem == "progress" and show.progress then
@@ -813,9 +865,11 @@ function M.build(w, ctx)
             if not _compact_stats_rendered then
                 _compact_stats_rendered = true
 
-                local stats_row = HorizontalGroup:new{ align = "center" }
-                
-                local function _update(nb, nd)
+                -- Rendered as a single TextWidget (not one widget per part +
+                -- separators) so the whole row can be capped to `tw` and
+                -- truncated with an ellipsis instead of stretching the
+                -- layout when the joined parts run long.
+                local function _composeText(nb, nd)
                     local secs_left
                     local avg_t = (nb and nb.avg_time and nb.avg_time > 0) and nb.avg_time or nd.avg_time
                     if avg_t and avg_t > 0 and nd.pages and nd.pages > 0 then
@@ -826,44 +880,43 @@ function M.build(w, ctx)
                     local parts = {}
                     for _i, e in ipairs(elem_order) do
                         if e == "book_time" and show.time and nb and nb.total_secs > 0 then
-                            parts[#parts+1] = { text = string.format(_("%s read"), fmtTime(nb.total_secs)), placeholder = false }
+                            parts[#parts+1] = string.format(_("%s read"), fmtTime(nb.total_secs))
                         elseif e == "book_remaining" and show.remain and secs_left then
-                            parts[#parts+1] = { text = string.format(_("%s left"), fmtTime(secs_left)), placeholder = false }
+                            parts[#parts+1] = string.format(_("%s left"), fmtTime(secs_left))
                         elseif e == "book_days" and show.days and nb and nb.days > 0 then
-                            parts[#parts+1] = { text = string.format(N_("%d day of reading", "%d days of reading", nb.days), nb.days), placeholder = false }
+                            parts[#parts+1] = string.format(N_("%d day of reading", "%d days of reading", nb.days), nb.days)
                         end
                     end
 
-                    if #parts == 0 then
-                        local any_active = (show.days or show.time or show.remain)
-                        if any_active then
-                            parts[#parts+1] = { text = string.format(_("%s read"), "—"), placeholder = true }
-                        end
+                    if #parts > 0 then
+                        return table.concat(parts, " · "), CLR_TEXT_SUB_EFF, true
                     end
 
-                    for i = #stats_row, 1, -1 do stats_row[i] = nil end
-                    
-                    for i, part in ipairs(parts) do
-                        if i > 1 then
-                            stats_row[#stats_row+1] = UI.makeColoredText{
-                                text    = " · ",
-                                face    = face_s,
-                                fgcolor = CLR_TEXT_SUB_EFF,
-                            }
-                        end
-                        stats_row[#stats_row+1] = UI.makeColoredText{
-                            text    = part.text,
-                            face    = face_s,
-                            fgcolor = part.placeholder and CLR_PH_EFF or CLR_TEXT_SUB_EFF,
-                        }
+                    local any_active = (show.days or show.time or show.remain)
+                    if any_active then
+                        return string.format(_("%s read"), "—"), CLR_PH_EFF, true
                     end
+                    return "", CLR_PH_EFF, false
                 end
 
-                _update(bstats, bd)
+                local text0, fg0, has_content0 = _composeText(bstats, bd)
+                local stats_w = UI.makeColoredText{
+                    text                    = text0,
+                    face                    = face_s,
+                    fgcolor                 = fg0,
+                    max_width               = tw,
+                    truncate_with_ellipsis  = true,
+                }
+
+                local function _update(nb, nd)
+                    local text, fg = _composeText(nb, nd)
+                    _updateColoredText(stats_w, text, fg)
+                end
                 table.insert(_cr_update_funcs, _update)
-                if #stats_row > 0 then
+
+                if has_content0 then
                     gap_before(pct_gap)
-                    meta[#meta+1] = stats_row
+                    meta[#meta+1] = stats_w
                     meta_has_content = true
                 end
             end
@@ -923,7 +976,7 @@ function M.build(w, ctx)
         local new_cover_w  = math.max(1, math.floor(new_cover_h * ratio))
         if new_cover_w ~= cover_w or new_cover_h ~= cover_h then
             cover_w, cover_h = new_cover_w, new_cover_h
-            tw = math.max(1, w - PAD - cover_w - cover_gap - PAD)
+            tw = math.max(1, w - cover_w - cover_gap - box.inset_h)
             -- Pass 2: rebuild the text column at the corrected width now
             -- that the cover (and thus the space left for text) changed
             -- size. Height cannot change between passes (see comment on
@@ -967,20 +1020,7 @@ function M.build(w, ctx)
     local cover = SH.getBookCover(ctx.current_fp, cover_w, cover_h)
                   or SH.coverPlaceholder(bd.title, bd.authors, cover_w, cover_h)
 
-    local show_frame = SUISettings:isTrue(pfx .. "currently_show_frame")
-    local solid_bg   = SUISettings:isTrue(pfx .. "currently_solid_bg")
-    local has_box    = show_frame or solid_bg
-    local border_sz  = show_frame and SUIStyle.BORDER_SZ or 0
-    local radius     = has_box and math.floor(Screen:scaleBySize(12) * scale) or 0
-    local border_color = Blitbuffer.gray(0.72)
-    border_color = SUIStyle.getThemeColor("separator") or border_color
-    local bg_color = nil
-    if solid_bg then
-        bg_color = SUIStyle.getThemeColor("bg") or Blitbuffer.COLOR_WHITE
-    end
-
-    local full_h = content_h
-    if has_box then full_h = full_h + PAD * 2 end
+    local full_h = content_h + box.inset_v
 
     -- Layout: cover on left, text column on right.
     -- The cover is wrapped in a CenterContainer sized to content_h so it
@@ -1009,18 +1049,7 @@ function M.build(w, ctx)
         dimen    = Geom:new{ w = w, h = full_h },
         _fp      = ctx.current_fp,
         _open_fn = ctx.open_fn,
-        [1] = FrameContainer:new{
-            bordersize    = border_sz,
-            radius        = radius,
-            color         = border_color,
-            background    = bg_color,
-            padding       = 0,
-            padding_left  = PAD,
-            padding_right = PAD,
-            padding_top   = has_box and PAD or 0,
-            padding_bottom= has_box and PAD or 0,
-            row,
-        },
+        [1] = SUIStyle.wrapBox(row, box),
     }
     tappable.ges_events = {
         TapBook = {
@@ -1139,7 +1168,8 @@ function M.getHeight(_ctx)
     -- lf again would apply the landscape reduction twice.
     local c           = _ctx and _ctx.cfg and _ctx.cfg.currently
     local lf          = (_ctx and _ctx.landscape_factor) or (UI.isLandscape() and UI.getLandscapeFactor() or 1)
-    local scale       = (c and c.scale       or Config.getModuleScale("currently", pfx)) * lf
+    local raw_scale   = c and c.scale       or Config.getModuleScale("currently", pfx)
+    local scale       = raw_scale * lf
     local lbl_scale   = (c and c.lbl_scale   or Config.getItemLabelScale("currently", pfx)) * lf
     local raw_thumb_scale = c and c.thumb_scale or Config.getThumbScale("currently", pfx)
 
@@ -1152,7 +1182,7 @@ function M.getHeight(_ctx)
     local w_estimate = (_ctx and (_ctx.col_w or _ctx.inner_w))
                         or (Screen:getWidth() - UI.SIDE_PAD * 2)
     local _cover_ratio = SH.getDims(1.0, 1.0).COVER_H / SH.getDims(1.0, 1.0).COVER_W
-    local cover_w, cover_h = _computeCoverDims(w_estimate, raw_thumb_scale, _cover_ratio)
+    local cover_w, cover_h = _computeCoverDims(w_estimate, raw_thumb_scale * raw_scale, _cover_ratio)
     local D = { COVER_W = cover_w, COVER_H = cover_h }
 
     local stats_style = c and c.stats_style or getStatsStyle(pfx)
@@ -1290,7 +1320,13 @@ function M.getHeight(_ctx)
         content_h = math.max(D.COVER_H, text_h_no_desc)
     end
     if _hasBox(pfx) then
+        -- Mirrors build()'s FrameContainer: bordersize is drawn outside the
+        -- padding, so the border itself (not just the padding) grows the
+        -- real widget by border_sz * 2 pixels whenever the frame is on.
         content_h = content_h + PAD * 2
+        if SUISettings:isTrue(pfx .. "currently_show_frame") then
+            content_h = content_h + SUIStyle.BORDER_SZ * 2
+        end
     end
     return Config.getScaledLabelH() + content_h
 end

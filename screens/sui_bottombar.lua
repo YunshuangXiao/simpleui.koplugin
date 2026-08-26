@@ -65,6 +65,20 @@ local function _QA()
     return package.loaded["features/sui_quickactions"] or require("features/sui_quickactions")
 end
 
+-- Lazy reference to the shared quickactions render engine — builds tab-cell
+-- icons/frames so this file no longer duplicates that construction. Loaded
+-- on first use to avoid a circular require at startup.
+local function _QARenderer()
+    return package.loaded["engines/sui_quickactions_render"] or require("engines/sui_quickactions_render")
+end
+
+-- Lazy reference to sui_core — provides UI.wrapDimmable, used to render an
+-- action's on/off state (e.g. wifi_toggle, night_mode) the same way every
+-- other QA consumer does. Loaded on first use to avoid a circular require.
+local function _UI()
+    return package.loaded["infra/sui_core"] or require("infra/sui_core")
+end
+
 -- Lazy reference to sui_browsemeta — avoids loading the module at startup when
 -- the Browse by Authors/Series feature may not be in use.
 local function _BM()
@@ -113,57 +127,42 @@ end
 
 local M = {}
 
--- Bar colors — static defaults used when no theme override is set.
-M.COLOR_INACTIVE_TEXT = Blitbuffer.gray(0.55)
-M.COLOR_SEPARATOR     = Blitbuffer.gray(0.7)
-
--- Returns the separator colour: respects the theme "separator" role, then
--- transparent when the user has hidden it, then the default grey.
-local function _sepColor()
-    local ok, style = pcall(_SUIStyle)
-    if ok and style then
-        local c = style.getThemeColor("separator")
-        if c then return c end
-    end
+-- Bar colors — derived from the shared style catalog, cached on first
+-- access (kept lazy, via _SUIStyle(), so requiring this module doesn't
+-- force features/sui_style to load at startup).
+local function _barColorInactiveText()
+    M.COLOR_INACTIVE_TEXT = M.COLOR_INACTIVE_TEXT or _SUIStyle().COLOR.text_dim
+    return M.COLOR_INACTIVE_TEXT
+end
+local function _barColorSeparator()
+    M.COLOR_SEPARATOR = M.COLOR_SEPARATOR or _SUIStyle().COLOR.gray
     return M.COLOR_SEPARATOR
+end
+
+-- Returns the separator colour: transparent when the user has hidden it,
+-- otherwise the default grey.
+local function _sepColor()
+    return _barColorSeparator()
 end
 -- Public accessor used by sui_core.lua to draw the full-width separator line.
 function M.sepColor() return _sepColor() end
 
 -- ---------------------------------------------------------------------------
--- Theme color helpers
--- Priority: transparent > bottombar_bg/fg role > bg/fg fallback > default.
--- The "bottombar_bg/fg" roles fall back to "bg/fg" automatically inside
--- SUIStyle.getThemeColor() via the _FALLBACKS chain.
+-- Bar color helpers
+-- Priority: transparent > default.
 -- ---------------------------------------------------------------------------
 local function _getBarBg()
     if M.getBarStyle() == "bare" or SUISettings:isTrue("simpleui_navbar_transparent") then return nil end
-    local ok, style = pcall(_SUIStyle)
-    if ok and style then
-        local c = style.getThemeColor("bottombar_bg")
-        if c then return c end
-    end
-    return Blitbuffer.COLOR_WHITE
+    return _SUIStyle().COLOR.surface
 end
 
 local function _getBarFg()
-    local ok, style = pcall(_SUIStyle)
-    if ok and style then
-        local c = style.getThemeColor("bottombar_fg")
-        if c then return c end
-    end
-    return Blitbuffer.COLOR_BLACK
+    return _SUIStyle().COLOR.text_primary
 end
 
--- Returns the color for inactive/dim nav items, respecting the theme
--- "text_secondary" role and falling back to the static default.
+-- Returns the color for inactive/dim nav items.
 local function _getInactiveColor()
-    local ok, style = pcall(_SUIStyle)
-    if ok and style then
-        local c = style.getThemeColor("text_secondary")
-        if c then return c end
-    end
-    return M.COLOR_INACTIVE_TEXT
+    return _barColorInactiveText()
 end
 
 -- ---------------------------------------------------------------------------
@@ -301,14 +300,28 @@ function M.patchDimmedIcon(btn)
                 end
                 local saved_dim = self_lw.dim
                 local saved_orig_nm = self_lw.original_in_nightmode
+                local saved_alpha = self_lw.alpha
                 self_lw.dim = nil
                 self_lw.original_in_nightmode = true
-                
+                -- The mask-extraction below needs a clean reference paint of
+                -- the icon composited onto the buffer paintWithAlphaMask has
+                -- already pre-filled with an opaque backdrop colour: forcing
+                -- alpha = true here makes KOReader's own paintTo blend the
+                -- icon onto that backdrop through its real alpha channel
+                -- when it has one (e.g. an icon built by
+                -- Bottombar.withWallpaperAlphaIcons for a wallpaper), which
+                -- is what produces a correct opaque render for the mask.
+                -- A plain icon with no alpha channel is unaffected either
+                -- way, since KOReader only takes the alpha-blend path when
+                -- the underlying bitmap actually carries one.
+                self_lw.alpha = true
+
                 local fg = _getInactiveColor()
                 UI_core.paintWithAlphaMask(self_lw, bb, x, y, w, h, fg, orig_lw_pt, self_lw._sui_tmp_bb)
 
                 self_lw.dim = saved_dim
                 self_lw.original_in_nightmode = saved_orig_nm
+                self_lw.alpha = saved_alpha
                 return
             end
         end
@@ -318,6 +331,75 @@ function M.patchDimmedIcon(btn)
     lw.free = function(self_lw)
         if self_lw._sui_tmp_bb then self_lw._sui_tmp_bb:free(); self_lw._sui_tmp_bb = nil end
         if orig_lw_free then orig_lw_free(self_lw) end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- withWallpaperAlphaIcons(fn) — runs fn() with every IconWidget built during
+-- its execution alpha-blended by default, then restores the original
+-- constructor.
+--
+-- IconWidget's render is lazy but caches on its first getSize()/paintTo()
+-- call, baking in whichever alpha value was set at that point — and a
+-- Button measures its own icon (triggering that first render) while
+-- sizing itself in init(), before the caller ever gets a handle back to
+-- patch anything. By the time Button:new() returns, an icon meant to sit
+-- transparently over a wallpaper has already been rendered flat and
+-- cached that way; flipping .alpha afterwards has no effect. The icon has
+-- to be born with alpha = true, which means patching IconWidget.init for
+-- the duration of construction.
+--
+-- Same technique infra/sui_patches.lua applies globally, for the whole
+-- lifetime of the FileManager wallpaper; this scoped variant gives any
+-- other caller (e.g. GridRenderer.buildPageNavButtons) the same guarantee
+-- for a handful of buttons without a global patch.
+-- ---------------------------------------------------------------------------
+function M.withWallpaperAlphaIcons(fn)
+    local IconWidget = require("ui/widget/iconwidget")
+    local orig_init = IconWidget.init
+    IconWidget.init = function(self, ...)
+        orig_init(self, ...)
+        self.alpha = true
+        self.original_in_nightmode = false
+    end
+    local ok, err = pcall(fn)
+    IconWidget.init = orig_init
+    if not ok then error(err) end
+end
+
+-- ---------------------------------------------------------------------------
+-- patchWallpaperIcon(btn) — makes an icon Button's frame paint transparently
+-- over a wallpaper.
+--
+-- Button always gives its inner FrameContainer an opaque background
+-- (COLOR_WHITE) unless the Button itself was created with an explicit
+-- `background`, painting straight over whatever sits behind the button and
+-- hiding the wallpaper underneath it. Only handles the frame — the icon
+-- itself must already have been built with alpha blending on, via
+-- withWallpaperAlphaIcons above.
+--
+-- Same technique infra/sui_patches.lua uses to make FileManager's own icon
+-- Buttons transparent over its wallpaper (nil the frame background while
+-- painting), applied here per-instance for callers that only need it on a
+-- specific button rather than every Button in the app — e.g.
+-- GridRenderer.buildPageNavButtons for the book-grid header's pagination
+-- chevrons.
+-- ---------------------------------------------------------------------------
+function M.patchWallpaperIcon(btn)
+    if not btn or btn._sui_wallpaper_patched then return end
+    btn._sui_wallpaper_patched = true
+
+    local orig_pt = btn.paintTo
+    btn.paintTo = function(self_btn, bb, x, y)
+        local frame = self_btn[1]
+        if frame and frame.background then
+            local saved_bg = frame.background
+            frame.background = nil
+            orig_pt(self_btn, bb, x, y)
+            frame.background = saved_bg
+        else
+            orig_pt(self_btn, bb, x, y)
+        end
     end
 end
 
@@ -365,182 +447,40 @@ function M.getTabWidths(num_tabs, usable_w)
     return _tab_widths_cache
 end
 
+-- Color-tinted, alpha-mask painted icon (nerd glyph or raster file). Used by
+-- both buildTabCell ("framed" bar style) and buildNavpagerArrowCell. The
+-- actual construction now lives in engines/sui_quickactions_render.lua
+-- (QARenderer.buildFramedIcon) so it isn't duplicated here; kept as a local
+-- alias so existing call sites in this file don't need to change.
 local function _makeColoredIcon(file, size, fgcolor)
-    local Config = require("infra/sui_config")
-    if Config.isNerdIcon(file) then
-        local nerd_char = Config.nerdIconChar(file)
-        local widget = require("ui/widget/container/widgetcontainer"):new{}
-        widget.dimen = Geom():new{ w = size, h = size }
-        widget._fg = fgcolor
-        local SUIStyle = _SUIStyle()
-        local tw = TextWidget():new{
-            text = nerd_char,
-            face = Font():getFace(SUIStyle and SUIStyle.FACE_ICONS or "symbols", math.floor(size * 0.75)),
-            fgcolor = fgcolor,
-            padding = 0,
-        }
-        widget._inner = tw
-        function widget:getSize() return self.dimen end
-        function widget:paintTo(bb, x, y)
-            self.dimen.x, self.dimen.y = x, y
-            local w, h = self.dimen.w, self.dimen.h
-            if w <= 0 or h <= 0 then return end
-            self._inner.fgcolor = self._fg or Blitbuffer.COLOR_BLACK
-            local t_sz = self._inner:getSize()
-            local ox = x + math.floor((size - t_sz.w) / 2)
-            local oy = y + math.floor((size - t_sz.h) / 2)
-            self._inner:paintTo(bb, ox, oy)
-        end
-        function widget:free()
-            if self._inner then self._inner:free(); self._inner = nil end
-        end
-        function widget:onToggleNightMode() require("ui/uimanager"):setDirty(self) end
-        function widget:onSetNightMode()    require("ui/uimanager"):setDirty(self) end
-        function widget:onApplyTheme()      require("ui/uimanager"):setDirty(self) end
-        return widget
-    end
-
-    local safe_file = _safeIconFile(file, nil)
-    if not safe_file then
-        logger.warn("simpleui/bottombar: _makeColoredIcon skipped, invalid file: " .. tostring(file))
-        -- Return a transparent placeholder widget of the correct size so
-        -- the layout does not collapse when an icon is missing.
-        local placeholder = require("ui/widget/container/widgetcontainer"):new{}
-        placeholder.dimen = Geom():new{ w = size, h = size }
-        function placeholder:getSize() return self.dimen end
-        function placeholder:paintTo() end
-        return placeholder
-    end
-    local inner = ImageWidget():new{
-        file    = safe_file,
-        width   = size,
-        height  = size,
-        is_icon = true,
-        alpha   = true,
-        original_in_nightmode = true, -- prevents native night-mode inversion of the ImageWidget
-    }
-    local widget = require("ui/widget/container/widgetcontainer"):new{}
-    widget.dimen = Geom():new{ w = size, h = size }
-    widget._inner = inner
-    widget._fg = fgcolor
-
-    local UI_core = require("infra/sui_core")
-    function widget:getSize() return self.dimen end
-    function widget:paintTo(bb, x, y)
-        self.dimen.x, self.dimen.y = x, y
-        local w, h = self.dimen.w, self.dimen.h
-        if w <= 0 or h <= 0 then return end
-        
-        if not self._tmp_bb or self._tmp_bb:getWidth() ~= w or self._tmp_bb:getHeight() ~= h then
-            if self._tmp_bb then self._tmp_bb:free() end
-            self._tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
-        end
-        UI_core.paintWithAlphaMask(self._inner, bb, x, y, w, h, self._fg, nil, self._tmp_bb)
-    end
-    function widget:free()
-        if self._inner then self._inner:free(); self._inner = nil end
-        if self._tmp_bb then self._tmp_bb:free(); self._tmp_bb = nil end
-    end
-    function widget:onToggleNightMode() require("ui/uimanager"):setDirty(self) end
-    function widget:onSetNightMode()    require("ui/uimanager"):setDirty(self) end
-    function widget:onApplyTheme()      require("ui/uimanager"):setDirty(self) end
-
-    return widget
+    return _QARenderer().buildFramedIcon(file, size, fgcolor)
 end
 
 -- Builds one tab cell: active indicator (pinned to top) + icon and/or label.
 -- The visible separator line is drawn full-width in wrapWithNavbar (sui_core.lua).
+-- Delegates the actual icon/label/indicator construction to
+-- QARenderer.buildTabCell (engines/sui_quickactions_render.lua); this
+-- function is now just the sizing/settings adapter between this bar's own
+-- dimension accessors and that shared builder.
 function M.buildTabCell(action_id, active, tab_w, mode)
-    local action   = Config.getActionById(action_id)
-    local vg       = VerticalGroup():new{ align = "center" }
-    local fg       = _getBarFg()
-    local SUIStyle = _SUIStyle()
-    
     local bar_style = M.getBarStyle()
-    local item_fg = fg
-
-    if mode == "icons" or mode == "both" then
-        local nerd_char = Config.nerdIconChar(action.icon)
-        if nerd_char then
-            local icon_sz = M.ICON_SZ()
-            -- Use tab_w as the outer width so the nerd glyph is centred
-            -- in exactly the same horizontal space as an SVG ImageWidget().
-            vg[#vg + 1] = CenterContainer():new{
-                dimen = Geom():new{ w = tab_w, h = icon_sz },
-                TextWidget():new{
-                    text    = nerd_char,
-                    face    = Font():getFace(SUIStyle.FACE_ICONS, math.floor(icon_sz * 0.6)),
-                    fgcolor = item_fg,
-                    padding = 0,
-                },
-            }
-        else
-            local safe_file = _safeIconFile(action.icon, nil)
-            if safe_file then
-                if bar_style == "framed" then
-                    vg[#vg + 1] = _makeColoredIcon(safe_file, M.ICON_SZ(), item_fg)
-                else
-                    local iw = ImageWidget():new{
-                        file    = safe_file,
-                        width   = M.ICON_SZ(),
-                        height  = M.ICON_SZ(),
-                        is_icon = true,
-                        alpha   = true,
-                    }
-                    local ok_render = pcall(function() iw:_render() end)
-                    if ok_render then
-                        vg[#vg + 1] = iw
-                    else
-                        iw:free()
-                        logger.warn("simpleui/bottombar: buildTabCell ignorou imagem corrompida:", safe_file)
-                    end
-                end
-            end
-        end
+    local inactive_indicator_color = nil
+    if bar_style == "default" and not SUISettings:isTrue("simpleui_navbar_transparent") then
+        inactive_indicator_color = _getBarBg() or _SUIStyle().COLOR.surface
     end
 
-    if mode == "text" or mode == "both" then
-        if mode == "both" then
-            if not _vspan_icon_txt then _vspan_icon_txt = VerticalSpan():new{ width = M.ICON_TXT_SP() } end
-            vg[#vg + 1] = _vspan_icon_txt
-        end
-        vg[#vg + 1] = TextWidget():new{
-            text    = action.label,
-            face    = Font():getFace(SUIStyle.FACE_REGULAR, M.LABEL_FS()),
-            fgcolor = item_fg,
-            bold    = active or false,
-        }
-    end
-
-    -- The content (icon/label) is centred inside BAR_H.
-    local content = CenterContainer():new{
-        dimen = Geom():new{ w = tab_w, h = M.BAR_H() },
-        vg,
-    }
-
--- The active indicator is pinned to the very top of the cell via OverlapGroup,
-    -- independent of the vertical centering of the content.
-    local og = OverlapGroup():new{
-        allow_mirroring = false,
-        dimen           = Geom():new{ w = tab_w, h = M.BAR_H() },
-        content,
-    }
-
-    if bar_style == "default" then
-        if active then
-            og[#og + 1] = LineWidget():new{
-                dimen          = Geom():new{ w = tab_w, h = M.INDIC_H() },
-                background     = fg,   -- active underline tracks fg
-                overlap_offset = { 0, 0 },
-            }
-        elseif not SUISettings:isTrue("simpleui_navbar_transparent") then
-            og[#og + 1] = LineWidget():new{
-                dimen          = Geom():new{ w = tab_w, h = M.INDIC_H() },
-                background     = _getBarBg() or Blitbuffer.COLOR_WHITE,
-                overlap_offset = { 0, 0 },
-            }
-        end
-    end
+    local og = _QARenderer().buildTabCell(action_id, active, {
+        tab_w                    = tab_w,
+        bar_h                    = M.BAR_H(),
+        icon_sz                  = M.ICON_SZ(),
+        label_fs                 = M.LABEL_FS(),
+        icon_txt_sp              = M.ICON_TXT_SP(),
+        indic_h                  = M.INDIC_H(),
+        mode                     = mode,
+        bar_style                = bar_style,
+        fgcolor                  = _getBarFg(),
+        inactive_indicator_color = inactive_indicator_color,
+    })
 
     return og
 end
@@ -548,18 +488,12 @@ end
 -- Builds a navpager arrow cell (Prev or Next).
 -- `enabled`  — false → dimmed (no prev/next page exists).
 -- `is_prev`  — true → left arrow, false → right arrow.
--- Active navpager arrow color: reads theme "accent" (or bottombar_fg fallback)
--- at call-time so live updates work.
+-- Active navpager arrow color: uses the standard bar foreground color.
 local function _navpagerColorActive()
-    local ok, style = pcall(_SUIStyle)
-    if ok and style then
-        local c = style.getThemeColor("accent")
-        if c then return c end
-    end
     return _getBarFg()
 end
 
--- Dimmed navpager arrow: respects "text_secondary" theme role.
+-- Dimmed navpager arrow: uses the inactive text color.
 local function _navpagerColor()
     return _getInactiveColor()
 end
@@ -617,7 +551,7 @@ function M.buildNavpagerArrowCell(is_prev, enabled, tab_w, mode)
     if bar_style == "default" and not SUISettings:isTrue("simpleui_navbar_transparent") then
         og[#og + 1] = LineWidget():new{
             dimen          = Geom():new{ w = tab_w, h = M.INDIC_H() },
-            background     = _getBarBg() or Blitbuffer.COLOR_WHITE,
+            background     = _getBarBg() or _SUIStyle().COLOR.surface,
             overlap_offset = { 0, 0 },
         }
     end
@@ -678,8 +612,7 @@ local function _buildBarContainer(hg_args, is_navpager)
     local style = M.getBarStyle()
     if style == "framed" then
         local radius = math.floor(Screen:scaleBySize(12) * _getNavbarScale())
-        local ok, SUIStyle = pcall(_SUIStyle)
-        local border_color = (ok and SUIStyle and SUIStyle.getThemeColor("separator")) or Blitbuffer.gray(0.72)
+        local border_color = _SUIStyle().COLOR.gray
         local inner_bg = _getBarBg()
         
 

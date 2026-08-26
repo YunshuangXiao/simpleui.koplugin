@@ -194,8 +194,7 @@ local function _fetchBookStatsData(book, range_start, range_end)
     local id_book
     if md5 then
         local ok_q, row = pcall(function()
-            return conn:rowexec(string.format(
-                "SELECT id FROM book WHERE md5 = '%s' LIMIT 1", md5))
+            return conn:rowexec(string.format(Config.BOOK_ID_BY_MD5_SQL, md5))
         end)
         if ok_q then id_book = row and tonumber(row) or nil end
     end
@@ -436,20 +435,6 @@ local function _parseDate(val)
     return nil
 end
 
--- local function _fmtDateRange(start_ts, finish_str)
---     local abbr = _monthAbbr()
---     local sf   = _parseDate(finish_str)
---     local ss   = _parseDate(start_ts)
---     if not sf then return "\xe2\x80\x93" end
---     local finish_part = string.format("%02d %s %d", sf.d, abbr[sf.m] or "?", sf.y)
---     if not ss then return finish_part end
---     if ss.y == sf.y then
---         return string.format("%02d %s \xe2\x80\x93 %s", ss.d, abbr[ss.m] or "?", finish_part)
---     else
---         return string.format("%02d %s %d \xe2\x80\x93 %s",
---             ss.d, abbr[ss.m] or "?", ss.y, finish_part)
---     end
--- end
 local function _fmtDateRange(start_ts, finish_str)
     local abbr = _monthAbbr()
     local sf   = _parseDate(finish_str)
@@ -530,9 +515,6 @@ local function _fmtDuration(secs)
     end
 end
 
--- local function _fmtDate(ts)
---     return os.date("%Y-%m-%d", ts)
--- end
 local function _fmtDate(ts)
     local ok_ss, SUIStyle = pcall(require, "features/sui_style")
     if ok_ss
@@ -711,7 +693,7 @@ local function _makeDateCard(inner_w, PAD_H,
     SZ = SZ or UI.SZ
     local face_date  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_BODY))
     local face_arrow = Font:getFace(SUIStyle.FACE_ICONS,   SZ(SUIStyle.FS_BODY))
-    local CLR_BLACK  = Blitbuffer.COLOR_BLACK
+    local CLR_BLACK  = SUIStyle.COLOR.text_primary
     local ARROW      = SUIStyle.icon("arrow_right")
     local date_inner = inner_w - 2 * PAD_H
     local date_third = math.floor(date_inner / 3)
@@ -822,7 +804,7 @@ local function _makeDateCard(inner_w, PAD_H,
     return FrameContainer:new{
         bordersize     = 0,
         radius         = SZ(Screen:scaleBySize(12)),
-        background     = Blitbuffer.gray(0.08),
+        background     = SUIStyle.COLOR.surface_flat,
         padding_top    = SZ(Screen:scaleBySize(14)),
         padding_bottom = SZ(Screen:scaleBySize(14)),
         padding_left   = PAD_H,
@@ -889,7 +871,7 @@ function StatsWindows.showFinishedBooksDialog(initial_page)
     local face_stat_author = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_BODY))
     local face_cell_lbl    = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_DETAIL))
     local face_cell_val    = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_TITLE))
-    local CLR_BLACK = Blitbuffer.COLOR_BLACK
+    local CLR_BLACK = SUIStyle.COLOR.text_primary
 
     local _cell_geo
     local function _buildCellGeo(inner_w)
@@ -979,8 +961,8 @@ function StatsWindows.showFinishedBooksDialog(initial_page)
         end
         local cg      = _buildCellGeo(inner_w)
 
-        local CLR_BORDER = Blitbuffer.gray(0.72)
-        local CLR_BLACK  = Blitbuffer.COLOR_BLACK
+        local CLR_BORDER = SUIStyle.COLOR.gray
+        local CLR_BLACK  = SUIStyle.COLOR.text_primary
         local PAD_H      = _Size.padding.large
         local ICON_FS    = ctx.SZ(SUIStyle.FS_BODY)
         local ROW_H      = ctx.SZ(Screen:scaleBySize(52))
@@ -1972,7 +1954,7 @@ local function _riYearHeader(inner_w, year, year_range, on_prev, on_next, SZ)
     SZ = SZ or UI.SZ
     local face = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_SUBTITLE))
     local face_chev = Font:getFace(SUIStyle.FACE_ICONS, math.floor(SZ(SUIStyle.FS_TITLE * 1.8)))
-    local CLR_BLACK = Blitbuffer.COLOR_BLACK
+    local CLR_BLACK = SUIStyle.COLOR.text_primary
 
     local prev_enabled = year > year_range.min_year
     local next_enabled = year < year_range.max_year
@@ -1995,7 +1977,7 @@ local function _riYearHeader(inner_w, year, year_range, on_prev, on_next, SZ)
         local tw = TextWidget:new{
             text    = label,
             face    = face_chev,
-            fgcolor = enabled and CLR_BLACK or Blitbuffer.gray(0.25),
+            fgcolor = enabled and CLR_BLACK or SUIStyle.COLOR.disabled,
             padding   = 0,
         }
         local ic = InputContainer:new{
@@ -2039,7 +2021,7 @@ end
 -- without one (identical value during a synchronous window build).
 local function _riYearlyRow(inner_w, yearly_stats, mode_key, on_toggle_mode, avail_h, SZ)
     SZ = SZ or UI.SZ
-    local CLR_BLACK = Blitbuffer.COLOR_BLACK
+    local CLR_BLACK = SUIStyle.COLOR.text_primary
     local face_val  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_TITLE))
     local face_lbl  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_DETAIL))
 
@@ -2144,14 +2126,14 @@ local function _riMonthlyChart(inner_w, monthly_data, value_key, selected_year, 
 
             local is_cur = (selected_year == current_year)
                            and (m.month == current_month)
-            local bar_color = is_cur and Blitbuffer.COLOR_BLACK
-                                      or Blitbuffer.COLOR_GRAY_B
+            local bar_color = is_cur and SUIStyle.COLOR.text_primary
+                                      or SUIStyle.COLOR.gray
 
             -- Value label above the bar.
             local val_lbl = TextWidget:new{
                 text    = val > 0 and tostring(val) or "",
                 face    = face_lbl,
-                fgcolor = Blitbuffer.COLOR_BLACK,
+                fgcolor = SUIStyle.COLOR.text_primary,
             }
             local col = VerticalGroup:new{ align = "center" }
             table.insert(col, _CenterContainer:new{
@@ -2180,7 +2162,7 @@ local function _riMonthlyChart(inner_w, monthly_data, value_key, selected_year, 
                 TextWidget:new{
                     text    = m.label:lower(),
                     face    = face_lbl,
-                    fgcolor = Blitbuffer.COLOR_BLACK,
+                    fgcolor = SUIStyle.COLOR.text_primary,
                 },
             })
             if i < #slice then
@@ -2225,8 +2207,8 @@ local function _riBuildStreakBoxes(inner_w, streaks, SZ)
     _lazyLoad()
     local Size = require("ui/size")
 
-    local CLR_BLACK  = Blitbuffer.COLOR_BLACK
-    local CLR_BORDER = Blitbuffer.gray(0.72)
+    local CLR_BLACK  = SUIStyle.COLOR.text_primary
+    local CLR_BORDER = SUIStyle.COLOR.gray
     local face_lbl_row  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_BODY))
     local face_val_row  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_BODY))
     local face_sub      = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_CAPTION))
@@ -2333,8 +2315,8 @@ local function _buildInsightsPage2(inner_w, avail_h, streaks, SZ)
     local Size    = require("ui/size")
     local sec_gap = math.max(SZ(Screen:scaleBySize(6)), math.floor(avail_h * 0.025))
 
-    local CLR_BLACK  = Blitbuffer.COLOR_BLACK
-    local CLR_BORDER = Blitbuffer.gray(0.72)
+    local CLR_BLACK  = SUIStyle.COLOR.text_primary
+    local CLR_BORDER = SUIStyle.COLOR.gray
 
     local face_val  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_TITLE))
     local face_lbl  = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_DETAIL))
@@ -2673,8 +2655,8 @@ function StatsWindows.showReadingInsightsWindow(on_close_extra)
         local dot_h      = ctx.SZ(Screen:scaleBySize(28)) + ctx.SZ(Screen:scaleBySize(18))
         local avail_h    = modal_h - 2 * border - pad_v - title_h - dot_h
 
-        local CLR_BLACK  = Blitbuffer.COLOR_BLACK
-        local CLR_BORDER = Blitbuffer.gray(0.72)
+        local CLR_BLACK  = SUIStyle.COLOR.text_primary
+        local CLR_BORDER = SUIStyle.COLOR.gray
 
         local face_sec    = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_DETAIL))
 
@@ -2916,16 +2898,12 @@ end
 -- one is independent).
 local _SM_STREAK_ICON = "\u{F490}"  -- nf-fa-fire — same glyph/meaning as the homescreen card
 local _SM_FROZEN_ICON = "\u{F2DC}"  -- nf-fa-snowflake-o — frozen-day badge
-local _SM_STREAK_ICON_CLR = Blitbuffer.COLOR_WHITE
-local _SM_FROZEN_ICON_CLR = Blitbuffer.COLOR_WHITE
 
 -- Day-cell circle fill colours (see _smDayCell): a dark dot for
 -- unread/future/filler days, and a light fill for every day that
 -- counts toward the streak — whether that's a lone active day (plain
 -- circle, no icon) or a day within a run of 2+ (streak-fire or frozen-
 -- snowflake icon on the same light circle).
-local _SM_CIRCLE_UNREAD = Blitbuffer.gray(0.15)
-local _SM_CIRCLE_COUNTED = Blitbuffer.gray(0.85)
 
 -- Sunday-first weekday abbreviations and full month names, translated via
 -- this project's own _() i18n (mirrors the existing _monthAbbr() pattern in
@@ -3018,7 +2996,7 @@ local function _smMonthHeader(inner_w, year, month, prev_enabled, next_enabled, 
     SZ = SZ or UI.SZ
     local face      = Font:getFace(SUIStyle.FACE_REGULAR, SZ(SUIStyle.FS_SUBTITLE))
     local face_chev = Font:getFace(SUIStyle.FACE_ICONS, math.floor(SZ(SUIStyle.FS_TITLE * 1.8)))
-    local CLR_BLACK = Blitbuffer.COLOR_BLACK
+    local CLR_BLACK = SUIStyle.COLOR.text_primary
 
     local gap   = SZ(Screen:scaleBySize(16))
     local btn_w = SZ(Screen:scaleBySize(60))
@@ -3039,7 +3017,7 @@ local function _smMonthHeader(inner_w, year, month, prev_enabled, next_enabled, 
         local tw = TextWidget:new{
             text    = label,
             face    = face_chev,
-            fgcolor = enabled and CLR_BLACK or Blitbuffer.gray(0.25),
+            fgcolor = enabled and CLR_BLACK or SUIStyle.COLOR.disabled,
             padding = 0,
         }
         local ic = InputContainer:new{
@@ -3109,12 +3087,12 @@ local function _smDayCell(SZ, cell_w, cell_h, is_counted, is_frozen, is_run)
 
     local bg, content
     if not is_counted then
-        bg = _SM_CIRCLE_UNREAD
+        bg = SUIStyle.COLOR.track
     else
-        bg = _SM_CIRCLE_COUNTED
+        bg = SUIStyle.COLOR.gray_strong
         if is_frozen or is_run then
             local icon_char = is_frozen and _SM_FROZEN_ICON or _SM_STREAK_ICON
-            local icon_clr  = is_frozen and _SM_FROZEN_ICON_CLR or _SM_STREAK_ICON_CLR
+            local icon_clr  = is_frozen and SUIStyle.COLOR.surface or SUIStyle.COLOR.surface
             content = UI.makeColoredText{
                 text    = icon_char,
                 face    = face_icon,
@@ -3167,8 +3145,8 @@ function StatsWindows.showStreakManagerWindow()
 
     local function buildRootScreen(ctx)
         local inner_w    = ctx.inner_w
-        local CLR_BLACK  = Blitbuffer.COLOR_BLACK
-        local CLR_BORDER = Blitbuffer.gray(0.72)
+        local CLR_BLACK  = SUIStyle.COLOR.text_primary
+        local CLR_BORDER = SUIStyle.COLOR.gray
         local face_sub   = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_CAPTION))
         local face_section = Font:getFace(SUIStyle.FACE_REGULAR, ctx.SZ(SUIStyle.FS_DETAIL))
 
@@ -3323,7 +3301,7 @@ function StatsWindows.showStreakManagerWindow()
         for i, name in ipairs(_smWeekdayAbbr()) do
             weekday_row[#weekday_row + 1] = _CenterContainer:new{
                 dimen = Geom:new{ w = cell_w, h = wd_h },
-                TextWidget:new{ text = name, face = face_wd, fgcolor = Blitbuffer.gray(0.45), bold = true },
+                TextWidget:new{ text = name, face = face_wd, fgcolor = SUIStyle.COLOR.text_dim, bold = true },
             }
             if i < 7 then weekday_row[#weekday_row + 1] = HorizontalSpan:new{ width = gap } end
         end
@@ -3593,7 +3571,7 @@ function StatsWindows.showStreakManagerWindow()
                 bordersize     = 0,
                 -- Same background as _makeDateCard's "date started / date
                 -- finished" card in the Books Finished window, per request.
-                background     = Blitbuffer.gray(0.08),
+                background     = SUIStyle.COLOR.surface_flat,
                 radius         = ctx.SZ(Screen:scaleBySize(12)),
                 padding        = 0,
                 padding_left   = pad_box,
@@ -3733,8 +3711,8 @@ function StatsWindows.showBookStatsFromFile(filepath)
             if filtered then d = filtered end
         end
 
-        local CLR_BORDER = Blitbuffer.gray(0.72)
-        local CLR_BLACK  = Blitbuffer.COLOR_BLACK
+        local CLR_BORDER = SUIStyle.COLOR.gray
+        local CLR_BLACK  = SUIStyle.COLOR.text_primary
         local PAD_H      = _Size.padding.large
         local ICON_FS    = ctx.SZ(SUIStyle.FS_BODY)
         local ROW_H      = ctx.SZ(Screen:scaleBySize(52))

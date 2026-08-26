@@ -16,6 +16,7 @@ local Device         = require("device")
 local Screen         = Device.screen
 local logger         = require("logger")
 local SUISettings = require("infra/sui_store")
+local SUIStyle    = require("features/sui_style")
 
 -- Lazy references to sibling modules — resolved on first use to avoid
 -- circular-require issues at load time, but stored as upvalues so that
@@ -166,8 +167,11 @@ M.LABEL_TEXT_H  = Screen:scaleBySize(_body_fs)  -- TextWidget height for FS_BODY
 M.LABEL_H       = M.LABEL_PAD_TOP + M.LABEL_PAD_BOT + M.LABEL_TEXT_H
 
 -- Shared secondary text colour used across all desktop modules.
--- Edit this single value to retheme every module at once.
-M.CLR_TEXT_SUB  = Blitbuffer.COLOR_BLACK
+-- Kept as a pass-through of the shared style catalog (features/sui_style.lua
+-- loads before this module and doesn't depend on it, so no circular-require
+-- concern) rather than pointing every consumer at SUIStyle.COLOR directly,
+-- since ~10 modules already import this as UI.CLR_TEXT_SUB.
+M.CLR_TEXT_SUB  = SUIStyle.COLOR.text_primary
 
 -- ---------------------------------------------------------------------------
 -- Landscape reduction factor — single source of truth.
@@ -462,7 +466,7 @@ function M.wrapWithNavbar(inner_widget, active_action_id, tabs, force_no_arrows)
     local topbar_idx       = topbar_on and #overlap_items or nil
     local navbar_container = OverlapGroup():new(overlap_items)
     local is_bare_bar = SUISettings:readSetting("simpleui_bar_style") == "bare"
-    local wrapper_bg = (SUISettings:isTrue("simpleui_navbar_transparent") or SUISettings:isTrue("simpleui_statusbar_transparent") or is_bare_bar) and nil or Blitbuffer.COLOR_WHITE
+    local wrapper_bg = (SUISettings:isTrue("simpleui_navbar_transparent") or SUISettings:isTrue("simpleui_statusbar_transparent") or is_bare_bar) and nil or SUIStyle.COLOR.surface
 
     return navbar_container,
            FrameContainer():new{
@@ -645,12 +649,18 @@ end
 -- Shared helper to paint a widget with perfect alpha transparency over wallpapers
 -- ---------------------------------------------------------------------------
 function M.paintWithAlphaMask(widget, target_bb, x, y, w, h, fgcolor, custom_paint_fn, tmp_bb)
+    -- widget can be nil if it was already freed (e.g. a widget shared with
+    -- a tree that got torn down elsewhere via a CloseWidget cascade) while
+    -- this wrapper is still reachable from a live paint pass. Skip the
+    -- paint rather than crash the whole repaint pipeline.
+    if not widget then return end
+
     local own_bb = false
     if not tmp_bb then
         tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
         own_bb = true
     end
-    tmp_bb:fill(Blitbuffer.COLOR_WHITE)
+    tmp_bb:fill(SUIStyle.COLOR.surface)
     if custom_paint_fn then
         custom_paint_fn(widget, tmp_bb, 0, 0)
     else
@@ -659,6 +669,73 @@ function M.paintWithAlphaMask(widget, target_bb, x, y, w, h, fgcolor, custom_pai
     tmp_bb:invertRect(0, 0, w, h)
     target_bb:colorblitFromRGB32(tmp_bb, x, y, 0, 0, w, h, fgcolor)
     if own_bb then tmp_bb:free() end
+end
+
+-- Shared lazy loader used by makeAlphaMaskWidget and its callers below.
+local _WidgetContainer
+local function _WC()
+    _WidgetContainer = _WidgetContainer or require("ui/widget/container/widgetcontainer")
+    return _WidgetContainer
+end
+
+-- ---------------------------------------------------------------------------
+-- makeAlphaMaskWidget — generic WidgetContainer wrapper that paints `inner`
+-- through paintWithAlphaMask, recolored to `fgcolor`, with a cached scratch
+-- Blitbuffer sized to the widget's own dimen.
+--
+-- This is the shared shape behind makeColoredText, makeAlphaTextBox, and
+-- wrapDimmable below (each just builds a different `inner` and picks a
+-- `fgcolor`) — kept as a single factory instead of three near-identical
+-- WidgetContainer definitions, and reused by other engines that need the
+-- same alpha-mask-recolored-widget technique.
+--
+-- `dimen` defaults to `inner:getSize()`. Pass it explicitly when the wrapper
+-- needs to report a size independent of the inner widget (e.g. a fixed
+-- icon-cell size).
+-- ---------------------------------------------------------------------------
+function M.makeAlphaMaskWidget(inner, fgcolor, dimen)
+    local widget = _WC():new{}
+    widget.dimen  = dimen or inner:getSize()
+    widget._inner = inner
+    widget._fg    = fgcolor
+
+    function widget:getSize()
+        return self.dimen
+    end
+
+    function widget:paintTo(bb, x, y)
+        self.dimen.x, self.dimen.y = x, y
+        local w = self.dimen.w
+        local h = self.dimen.h
+        if w <= 0 or h <= 0 then return end
+
+        if not self._tmp_bb or self._tmp_bb:getWidth() ~= w or self._tmp_bb:getHeight() ~= h then
+            if self._tmp_bb then self._tmp_bb:free() end
+            self._tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
+        end
+        M.paintWithAlphaMask(self._inner, bb, x, y, w, h, self._fg, nil, self._tmp_bb)
+    end
+
+    function widget:onCloseWidget()
+        self:free()
+    end
+
+    function widget:free()
+        if self._inner then
+            self._inner:free()
+            self._inner = nil
+        end
+        if self._tmp_bb then
+            self._tmp_bb:free()
+            self._tmp_bb = nil
+        end
+    end
+
+    function widget:onToggleNightMode() require("ui/uimanager"):setDirty(self) end
+    function widget:onSetNightMode()    require("ui/uimanager"):setDirty(self) end
+    function widget:onApplyTheme()      require("ui/uimanager"):setDirty(self) end
+
+    return widget
 end
 
 -- ---------------------------------------------------------------------------
@@ -683,17 +760,11 @@ end
 --       text    = "hello",
 --       face    = Font:getFace("cfont", SUIStyle.FS_CAPTION),
 --       bold    = true,
---       fgcolor = Blitbuffer.COLOR_BLACK,  -- any colour
+--       fgcolor = SUIStyle.COLOR.text_primary,  -- any colour
 --       width   = 200,                     -- optional, as with TextWidget
 --   }
 -- ---------------------------------------------------------------------------
--- Shared lazy loaders for both makeColoredText and makeAlphaTextBox.
-local _WidgetContainer
-local function _WC()
-    _WidgetContainer = _WidgetContainer or require("ui/widget/container/widgetcontainer")
-    return _WidgetContainer
-end
-
+-- Shared lazy loader for makeColoredText and makeAlphaTextBox.
 local _TextWidget
 local function _TW()
     _TextWidget = _TextWidget or require("ui/widget/textwidget")
@@ -711,52 +782,10 @@ function M.makeColoredText(opts)
     -- white buffer would produce an empty mask (invisible text).
     local inner_opts = {}
     for k, v in pairs(opts) do inner_opts[k] = v end
-    inner_opts.fgcolor = Blitbuffer.COLOR_BLACK
+    inner_opts.fgcolor = SUIStyle.COLOR.text_primary
 
     local inner = _TW():new(inner_opts)
-
-    local dimen = inner:getSize()
-
-    local widget = _WC():new{}
-    widget.dimen  = dimen
-    widget._inner = inner
-    widget._fg    = fgcolor
-
-    function widget:getSize()
-        return self.dimen
-    end
-
-    function widget:paintTo(bb, x, y)
-        self.dimen.x, self.dimen.y = x, y
-        local w = self.dimen.w
-        local h = self.dimen.h
-        if w <= 0 or h <= 0 then return end
-
-        if not self._tmp_bb or self._tmp_bb:getWidth() ~= w or self._tmp_bb:getHeight() ~= h then
-            if self._tmp_bb then self._tmp_bb:free() end
-            self._tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
-        end
-        M.paintWithAlphaMask(self._inner, bb, x, y, w, h, self._fg, nil, self._tmp_bb)
-    end
-
-    function widget:onCloseWidget() self:free() end
-
-    function widget:free()
-        if self._inner then
-            self._inner:free()
-            self._inner = nil
-        end
-        if self._tmp_bb then
-            self._tmp_bb:free()
-            self._tmp_bb = nil
-        end
-    end
-
-    function widget:onToggleNightMode() require("ui/uimanager"):setDirty(self) end
-    function widget:onSetNightMode()    require("ui/uimanager"):setDirty(self) end
-    function widget:onApplyTheme()      require("ui/uimanager"):setDirty(self) end
-
-    return widget
+    return M.makeAlphaMaskWidget(inner, fgcolor)
 end
 
 -- ---------------------------------------------------------------------------
@@ -801,7 +830,7 @@ end
 --       bold      = true,
 --       width     = tw,
 --       alignment = "center",
---       fgcolor   = Blitbuffer.COLOR_BLACK,
+--       fgcolor   = SUIStyle.COLOR.text_primary,
 --       max_lines = 2,     -- optional, passed through to inner TextBoxWidget
 --   }
 -- ---------------------------------------------------------------------------
@@ -812,7 +841,7 @@ local function _TBW()
 end
 
 function M.makeAlphaTextBox(opts)
-    local fgcolor = opts.fgcolor or Blitbuffer.COLOR_BLACK
+    local fgcolor = opts.fgcolor or SUIStyle.COLOR.text_primary
 
     local inner = _TBW():new{
         text        = opts.text,
@@ -826,54 +855,28 @@ function M.makeAlphaTextBox(opts)
         max_lines   = opts.max_lines,
         height_adjust = opts.height_adjust,
         height_overflow_show_ellipsis = opts.height_overflow_show_ellipsis,
-        fgcolor     = Blitbuffer.COLOR_BLACK,
-        bgcolor     = Blitbuffer.COLOR_WHITE,
+        fgcolor     = SUIStyle.COLOR.text_primary,
+        bgcolor     = SUIStyle.COLOR.surface,
         alpha       = true,
     }
 
-    local dimen = inner:getSize()
+    return M.makeAlphaMaskWidget(inner, fgcolor)
+end
 
-    local widget = _WC():new{}
-    widget.dimen  = dimen
-    widget._inner = inner
-    widget._fg    = fgcolor
-
-    function widget:getSize()
-        return self.dimen
-    end
-
-    function widget:paintTo(bb, x, y)
-        self.dimen.x, self.dimen.y = x, y
-        local w = self.dimen.w
-        local h = self.dimen.h
-
-        if not self._tmp_bb or self._tmp_bb:getWidth() ~= w or self._tmp_bb:getHeight() ~= h then
-            if self._tmp_bb then self._tmp_bb:free() end
-            self._tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
-        end
-        M.paintWithAlphaMask(self._inner, bb, x, y, w, h, self._fg, nil, self._tmp_bb)
-    end
-
-    function widget:onCloseWidget()
-        self:free()
-    end
-
-    function widget:free()
-        if self._inner then
-            self._inner:free()
-            self._inner = nil
-        end
-        if self._tmp_bb then
-            self._tmp_bb:free()
-            self._tmp_bb = nil
-        end
-    end
-
-    function widget:onToggleNightMode() require("ui/uimanager"):setDirty(self) end
-    function widget:onSetNightMode()    require("ui/uimanager"):setDirty(self) end
-    function widget:onApplyTheme()      require("ui/uimanager"):setDirty(self) end
-
-    return widget
+-- ---------------------------------------------------------------------------
+-- wrapDimmable — wraps any already-built widget so it paints dimmed.
+--
+-- Generalises the alpha-recolour technique above (and the one used by
+-- Bottombar.patchDimmedIcon for the pagination chevrons) to arbitrary
+-- widgets: an icon's on/off, enabled/disabled state is expressed by dimming
+-- the SAME widget rather than swapping in a visually distinct asset.
+--
+-- Pass-through when dim is false, so callers can wrap unconditionally:
+--   icon_widget = UI.wrapDimmable(icon_widget, entry.dim)
+-- ---------------------------------------------------------------------------
+function M.wrapDimmable(inner, dim, fgcolor)
+    if not dim or not inner then return inner end
+    return M.makeAlphaMaskWidget(inner, fgcolor or SUIStyle.COLOR.text_dim)
 end
 
 -- ---------------------------------------------------------------------------
@@ -885,12 +888,12 @@ function M.progressBar(w, pct, bar_h, fg_color, bg_color)
     local ok, SUIStyle = pcall(require, "features/sui_style")
     local style = SUISettings:get("simpleui_style_progress_bar_type") or "flat"
 
-    local bg = bg_color or (ok and SUIStyle.getThemeColor("progress_bg")) or Blitbuffer.gray(0.15)
-    local fg = fg_color or (ok and SUIStyle.getThemeColor("progress_fg")) or Blitbuffer.gray(0.75)
+    local bg = bg_color or SUIStyle.COLOR.track
+    local fg = fg_color or SUIStyle.COLOR.gray
     
     if style == "framed" then
         local border = ok and SUIStyle.BADGE_BORDER_SZ or 1
-        local border_color = Blitbuffer.COLOR_BLACK
+        local border_color = SUIStyle.COLOR.text_primary
         local inner_w = math.max(0, w - 2 * border)
         local inner_h = math.max(0, bar_h - 2 * border)
         local fw = math.max(0, math.floor(inner_w * math.min(pct or 0, 1.0)))
@@ -898,9 +901,9 @@ function M.progressBar(w, pct, bar_h, fg_color, bg_color)
         local bg_frame = FrameContainer():new{
             bordersize = border,
             color      = border_color,
-            background = Blitbuffer.COLOR_WHITE,
+            background = SUIStyle.COLOR.surface,
             padding    = 0, margin = 0,
-            LineWidget():new{ dimen = Geom():new{ w = inner_w, h = inner_h }, background = Blitbuffer.COLOR_WHITE }
+            LineWidget():new{ dimen = Geom():new{ w = inner_w, h = inner_h }, background = SUIStyle.COLOR.surface }
         }
 
         if fw <= 0 then

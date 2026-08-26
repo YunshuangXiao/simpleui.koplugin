@@ -1,73 +1,66 @@
--- sui_style.lua — SimpleUI  ▸  Style  ▸  Icons  ▸  System Icons  ▸  Date Style
+-- sui_style.lua — SimpleUI's shared style module.
 --
--- Manages custom icon overrides for:
---   • KOReader FM + Reader touch-menu tabs (appbar.filebrowser / settings /
---     tools / search / menu / navigation / typeset), plus the SimpleUI-
---     injected Quick Settings tab (see sui_quicksettings_bar.lua)
---   • FM titlebar home button  (KO built-in "home" icon)
---   • SimpleUI menu button     (ko_menu  — the right titlebar button)
---   • SimpleUI search button   (ko_search — injected search button)
---   • SimpleUI injected menu   (sub_menu  — injected menu in widgets)
+-- Two independent responsibilities live in this file:
 --
--- How it works
--- ────────────
--- Icons are stored as full SVG/PNG paths in SUISettings under the key
--- "simpleui_sysicon_<slot_id>".  nil means "use the default".
+-- 1. Design tokens (COLOR, FS_*, FACE_*, ICON, BORDER_SZ, BADGE_*) — the
+--    single source of truth every SimpleUI module draws its look from.
+--    Change a value here, not at the call site.
 --
--- For tab-bar icons: we patch FileManagerMenu.onShowMenu and
--- ReaderMenu.onShowMenu so that every time either menu is (re)opened the
--- tab icons are replaced with the user's choices before the TouchMenu
--- widget is built. Matching happens on `tab.id` — the field KOReader's
--- MenuSorter stamps onto every tab entry (menu_items key) — NOT `tab.key`,
--- which native tabs never have. The patches are installed by
--- installTabIconPatch()/installReaderTabIconPatch() and removed on teardown.
+-- 2. System icon overrides — lets the user replace individual KOReader/
+--    SimpleUI icons (titlebar buttons, touch-menu tabs, pagination chevrons,
+--    navpager arrows, the collections back button, folder-cover placeholder)
+--    with their own SVG/PNG/Nerd-Font glyph. Overrides are stored in
+--    SUISettings under "simpleui_sysicon_<slot_id>"; nil means "use default".
 --
--- For titlebar / search / back icons: sui_titlebar.apply() calls
--- SUIStyle.getIcon(slot_id) when it assigns image.file to each button, and
--- sui_titlebar.lua is modified to call the overrides.  This file therefore
--- also exposes helper methods
--- that sui_titlebar.lua invokes after building each button so the icons can be
--- swapped without duplicating the button-construction logic.
+-- Icon override mechanics
+-- ───────────────────────
+-- Tab-bar icons: FileManagerMenu.onShowMenu and ReaderMenu.onShowMenu are
+-- patched so every (re)open replaces tab icons with the user's choices
+-- before TouchMenu is built. Matching uses `tab.id` (stamped by KOReader's
+-- MenuSorter onto every tab entry) — NOT `tab.key`, which native tabs never
+-- have. Patches are installed by installTabIconPatch()/
+-- installReaderTabIconPatch() and removed on teardown.
+--
+-- Titlebar / search / back icons: sui_titlebar.lua calls
+-- SUIStyle.getIcon(slot_id) when assigning image.file to each button, and
+-- calls SUIStyle.applyIconToBtn() after building it so the override can be
+-- swapped in without duplicating button-construction logic.
 --
 -- Public API
 -- ──────────
---   SUIStyle.SLOTS            — ordered list of slot descriptors
---   SUIStyle.getIcon(id)      — stored path or nil
---   SUIStyle.setIcon(id, path)— save (nil = reset to default)
---   SUIStyle.resetAll()       — clear every override
---   SUIStyle.applyTabIcons(fm_or_ui_or_table) — push overrides into a live
---                                          FM/Reader tab_item_table
---   SUIStyle.installTabIconPatch(plugin)       — persistent FM-menu patch
---   SUIStyle.removeTabIconPatch()              — undo persistent patch
---   SUIStyle.installReaderTabIconPatch(plugin) — persistent Reader-menu patch
---   SUIStyle.removeReaderTabIconPatch()        — undo persistent patch
---   SUIStyle.refreshLiveTabBars()        — reapply + repaint any open
---                                          FM/Reader tab bar right now
---                                          (also syncs the shared Quick
---                                          Settings panel-tab icon)
---   SUIStyle.makeMenuItems(plugin)       — returns sub_item_table for the menu
---   SUIStyle.applyIconToBtn(id, btn)     — overwrite image.file on a live button
---                                          (called by sui_titlebar.lua)
---   SUIStyle.applyPaginationIcons(widget) — apply pg_icons overrides to a live
---                                          Menu/FileChooser widget's chevron btns
---   SUIStyle.applyCollBackIcon(widget)   — apply coll_back override to the
---                                          page_return_arrow of a collections widget
---   SUIStyle.performResetAllSystemIcons(plugin) — applies reset and triggers update routines
---   SUIStyle.sui_build_system_icons(plugin, ctx_menu, ctx) — native RowPage renderer
+--   Design tokens: SUIStyle.COLOR / .FS_* / .FACE_* / .ICON / .icon(name)
 --
--- Theme Colors API
--- ──────────────
---   SUIStyle.getThemeColor(role)         — Blitbuffer color for "bg"|"fg", or nil
---   SUIStyle.setThemeColor(role, hex)    — save "#RRGGBB" or nil to reset
---   SUIStyle.resetTheme()               — clear all theme color overrides
---   SUIStyle.makeThemeMenuItems()        — returns sub_item_table for Style ▸ Theme Colors
+--   SUIStyle.SLOTS                        — ordered list of slot descriptors
+--   SUIStyle.getIcon(id) / .setIcon(id, path) — read/write one override
+--   SUIStyle.resetAll() / .performResetAllSystemIcons(plugin) — clear overrides
+--   SUIStyle.applyTabIcons(fm_or_ui_or_table)  — push overrides into a live
+--                                                 FM/Reader tab_item_table
+--   SUIStyle.install/removeTabIconPatch()        — persistent FM-menu patch
+--   SUIStyle.install/removeReaderTabIconPatch()  — persistent Reader-menu patch
+--   SUIStyle.refreshLiveTabBars()          — reapply + repaint any open
+--                                             FM/Reader tab bar right now
+--   SUIStyle.makeMenuItems(plugin)         — sub_item_table for the settings menu
+--   SUIStyle.sui_build_system_icons(...)   — native RowPage renderer for the same menu
+--   SUIStyle.applyIconToBtn(id, btn)       — overwrite a live button's icon
+--   SUIStyle.restoreDefaultIcon(btn, ...)  — revert a live button to its default
+--   SUIStyle.applyPaginationIcons(widget)  — apply pg_icons overrides to a
+--                                             Menu/FileChooser's chevron buttons
+--   SUIStyle.applyCollBackIcon(widget)     — apply coll_back override to a
+--                                             collections widget's back button
+--
+--   Fonts: SUIStyle.applyUIFont() / .makeFontMenuItems()
+--   Icon packs: SUIStyle.getPacksDir() / .listPacks() / .installZip(path) /
+--               .applyPack(path)
 
-local SUISettings = require("infra/sui_store")
-local logger      = require("logger")
-local _           = require("infra/sui_i18n").translate
-local Blitbuffer  = require("ffi/blitbuffer")
-local Device      = require("device")
-local Screen      = Device.screen
+local SUISettings     = require("infra/sui_store")
+local logger          = require("logger")
+local _               = require("infra/sui_i18n").translate
+local Blitbuffer      = require("ffi/blitbuffer")
+local Device          = require("device")
+local FrameContainer   = require("ui/widget/container/framecontainer")
+local HorizontalGroup  = require("ui/widget/horizontalgroup")
+local HorizontalSpan   = require("ui/widget/horizontalspan")
+local Screen          = Device.screen
 
 -- ---------------------------------------------------------------------------
 -- Slot catalogue
@@ -313,7 +306,11 @@ end
 -- SVG requires librsvg (available on most KOReader builds).
 -- PNG is always safe (liblodepng is always present).
 -- JPG/JPEG are supported but not recommended for icons (no transparency).
-local _SUPPORTED_ICON_EXTS = { png = true, svg = true, jpg = true, jpeg = true }
+-- Exported (not local) so callers that need to *offer* the same set of
+-- formats — e.g. engines/sui_asset_browser.lua's file filter in the
+-- "Browse…" button of QA.showIconPicker — stay in sync with what this
+-- validator actually accepts, instead of duplicating the literal set.
+M.SUPPORTED_ICON_EXTS = { png = true, svg = true, jpg = true, jpeg = true }
 
 --- Validates `path` as a loadable icon file.
 --- Returns `path` when valid, `fallback` otherwise.
@@ -338,7 +335,7 @@ function M.safeIconPath(path, fallback, slot_id)
 
     -- Extension check — fast, no I/O.
     local ext = path:match("%.([^.]+)$")
-    if not ext or not _SUPPORTED_ICON_EXTS[ext:lower()] then
+    if not ext or not M.SUPPORTED_ICON_EXTS[ext:lower()] then
         logger.warn("simpleui/style: unsupported icon format '" .. tostring(ext)
                     .. "' in path: " .. path)
         if slot_id then M.setIcon(slot_id, nil) end
@@ -414,6 +411,45 @@ end
 -- Apply helpers — called by sui_titlebar.lua
 -- ---------------------------------------------------------------------------
 
+-- Points a button's render-tree slot at a new widget and keeps every place
+-- that can reference the old one in sync:
+--   • horizontal_group[2] — what IconButton actually paints.
+--   • label_container[1]  — what a plain Button{icon=…} actually paints
+--                            (pagination chevrons use this, not IconButton).
+--   • dimen                — recomputed from the button's own w/h (not the
+--                            new widget's natural size), since widgetInvert
+--                            (flash_ui highlight) and IconButton:update() /
+--                            initGesListener() both read it.
+-- Setting btn[w_key] alone is not enough: the render tree still points at
+-- the old widget until these slots are patched too.
+local function _syncButtonRenderSlot(btn, w_key, new_w)
+    btn[w_key] = new_w
+
+    local hg = btn.horizontal_group
+    if hg and hg[2] and type(hg[2]) == "table"
+            and hg[2].paintTo and hg[2] ~= new_w then
+        hg[2] = new_w
+    end
+
+    local lc = btn.label_container
+    if lc and lc[1] and type(lc[1]) == "table"
+            and lc[1].paintTo and lc[1] ~= new_w then
+        lc[1] = new_w
+    end
+
+    local w_width  = btn.width  or new_w.width  or 0
+    local w_height = btn.height or new_w.height or 0
+    -- TextWidget only computes its size lazily inside paintTo — force it now.
+    pcall(new_w.getSize, new_w)
+    local Geom = require("ui/geometry")
+    new_w.dimen = Geom:new{ x = 0, y = 0, w = w_width, h = w_height }
+
+    if btn.dimen then
+        btn.dimen.w = w_width  + (btn.padding_left  or 0) + (btn.padding_right  or 0)
+        btn.dimen.h = w_height + (btn.padding_top   or 0) + (btn.padding_bottom or 0)
+    end
+end
+
 --- Replaces image.file on a live button widget with the stored override for
 --- `id`.  Does nothing when no override is set or the button has no image.
 --- Returns true when an override was applied.
@@ -426,50 +462,6 @@ function M.applyIconToBtn(id, btn)
     
     local Config = require("infra/sui_config")
     local is_nerd = Config.isNerdIcon(path)
-    
-    -- IconButton stores self.image at self.horizontal_group[2] — that slot is
-    -- what HorizontalGroup actually paints. Setting btn[w_key] alone updates
-    -- the table field but leaves the render-tree slot pointing at the old widget.
-    -- This helper keeps both in sync, and also recalculates btn.dimen so that
-    -- IconButton:update() / initGesListener() use the right size.
-    local function _syncIconButtonSlot(w_key, new_w)
-        btn[w_key] = new_w
-        -- Sync the render-tree slot (horizontal_group[2]) so IconButton paints
-        -- the new widget and not the old one.
-        local hg = btn.horizontal_group
-        if hg and hg[2] and type(hg[2]) == "table"
-                and hg[2].paintTo and hg[2] ~= new_w then
-            hg[2] = new_w
-        end
-        -- Button render tree: btn.label_container[1] = btn.label_widget
-        -- Pagination chevrons are Button:new{icon=…}, NOT IconButton, so their
-        -- render slot is label_container[1]. Patch it so the new widget is
-        -- actually painted instead of the old one.
-        local lc = btn.label_container
-        if lc and lc[1] and type(lc[1]) == "table"
-                and lc[1].paintTo and lc[1] ~= new_w then
-            lc[1] = new_w
-        end
-        -- widgetInvert (called by IconButton:onTapIconButton for the flash_ui
-        -- highlight) uses `widget.dimen.w/h` when no explicit w/h are passed.
-        -- TextWidget only populates self.dimen lazily inside paintTo, so we
-        -- must force-compute the size now and store a Geom on the widget.
-        -- We use the button slot dimensions (w_width × w_height) rather than
-        -- the text's natural size, because that is what widgetInvert needs to
-        -- know in order to invert the correct screen area.
-        local w_width  = btn.width  or new_w.width  or 0
-        local w_height = btn.height or new_w.height or 0
-        -- Ensure the internal TextWidget size is computed (populates _length/_height).
-        pcall(new_w.getSize, new_w)
-        -- Give the widget a concrete dimen so widgetInvert never sees nil.
-        local Geom = require("ui/geometry")
-        new_w.dimen = Geom:new{ x = 0, y = 0, w = w_width, h = w_height }
-        -- Keep btn.dimen consistent (padding-aware).
-        if btn.dimen then
-            btn.dimen.w = w_width  + (btn.padding_left  or 0) + (btn.padding_right  or 0)
-            btn.dimen.h = w_height + (btn.padding_top   or 0) + (btn.padding_bottom or 0)
-        end
-    end
 
     local function applyToWidget(w_key)
         local w = btn[w_key]
@@ -504,8 +496,7 @@ function M.applyIconToBtn(id, btn)
                 orig_paintTo(self_w, bb, ox, oy)
             end
 
-            -- Sync btn[w_key] AND horizontal_group[2] so the render tree is consistent.
-            _syncIconButtonSlot(w_key, new_w)
+            _syncButtonRenderSlot(btn, w_key, new_w)
 
             local bb_mod = package.loaded["screens/sui_bottombar"]
             if bb_mod and bb_mod.patchDimmedIcon then
@@ -520,8 +511,7 @@ function M.applyIconToBtn(id, btn)
                     width  = btn.width,
                     height = btn.height,
                 }
-                -- Sync btn[w_key] AND horizontal_group[2].
-                _syncIconButtonSlot(w_key, new_w)
+                _syncButtonRenderSlot(btn, w_key, new_w)
 
                 local bb_mod = package.loaded["screens/sui_bottombar"]
                 if bb_mod and bb_mod.patchDimmedIcon then
@@ -580,38 +570,6 @@ end
 function M.restoreDefaultIcon(btn, default_icon, default_file)
     if not btn then return end
 
-    -- Same render-tree sync as applyIconToBtn: when we replace btn[w_key] we
-    -- must also update horizontal_group[2], the slot IconButton actually paints.
-    local function _syncIconButtonSlot(w_key, new_w)
-        btn[w_key] = new_w
-        -- Sync the render-tree slot (horizontal_group[2]) so IconButton paints
-        -- the new widget and not the old one.
-        local hg = btn.horizontal_group
-        if hg and hg[2] and type(hg[2]) == "table"
-                and hg[2].paintTo and hg[2] ~= new_w then
-            hg[2] = new_w
-        end
-        -- widgetInvert (called by IconButton:onTapIconButton for the flash_ui
-        -- highlight) uses `widget.dimen.w/h` when no explicit w/h are passed.
-        -- TextWidget only populates self.dimen lazily inside paintTo, so we
-        -- must force-compute the size now and store a Geom on the widget.
-        -- We use the button slot dimensions (w_width × w_height) rather than
-        -- the text's natural size, because that is what widgetInvert needs to
-        -- know in order to invert the correct screen area.
-        local w_width  = btn.width  or new_w.width  or 0
-        local w_height = btn.height or new_w.height or 0
-        -- Ensure the internal TextWidget size is computed (populates _length/_height).
-        pcall(new_w.getSize, new_w)
-        -- Give the widget a concrete dimen so widgetInvert never sees nil.
-        local Geom = require("ui/geometry")
-        new_w.dimen = Geom:new{ x = 0, y = 0, w = w_width, h = w_height }
-        -- Keep btn.dimen consistent (padding-aware).
-        if btn.dimen then
-            btn.dimen.w = w_width  + (btn.padding_left  or 0) + (btn.padding_right  or 0)
-            btn.dimen.h = w_height + (btn.padding_top   or 0) + (btn.padding_bottom or 0)
-        end
-    end
-
     local function applyToWidget(w_key)
         local w = btn[w_key]
         if not w then return end
@@ -624,7 +582,7 @@ function M.restoreDefaultIcon(btn, default_icon, default_file)
                 width  = btn.width,
                 height = btn.height,
             }
-            _syncIconButtonSlot(w_key, new_w)
+            _syncButtonRenderSlot(btn, w_key, new_w)
         else
             -- Mutate in-place: object identity at horizontal_group[2] is
             -- preserved so no slot sync is needed.
@@ -642,11 +600,6 @@ function M.restoreDefaultIcon(btn, default_icon, default_file)
     if btn.image then applyToWidget("image")
     elseif btn.label_widget then applyToWidget("label_widget")
     end
-end
-
--- Alias for internal compatibility
-local function _applyNativeBtn(id, btn)
-    return M.applyIconToBtn(id, btn)
 end
 
 -- ---------------------------------------------------------------------------
@@ -670,7 +623,7 @@ function M.applyPaginationIcons(widget)
     for id, field in pairs(_PG_CHEV_FIELDS) do
         local btn = widget[field]
         if btn then
-            applied = _applyNativeBtn(id, btn) or applied
+            applied = M.applyIconToBtn(id, btn) or applied
         end
     end
     return applied
@@ -687,7 +640,7 @@ function M.applyCollBackIcon(widget)
     if not widget then return false end
     local btn = widget.page_return_arrow
     if not btn then return false end
-    return _applyNativeBtn("sui_coll_back", btn)
+    return M.applyIconToBtn("sui_coll_back", btn)
 end
 
 -- ---------------------------------------------------------------------------
@@ -708,20 +661,19 @@ end
 -- ---------------------------------------------------------------------------
 -- Tab-icon name registration
 -- ---------------------------------------------------------------------------
--- CRITICAL CONSTRAINT: unlike every other icon slot in this file (which
--- SimpleUI renders itself via ImageWidget/IconWidget with `.file = path`,
--- so any absolute/relative path works), tab-bar icons are rendered by
--- KOReader's OWN native widgets: TouchMenu → TouchMenuBar → IconButton →
--- IconWidget. IconButton unconditionally does
--- `IconWidget:new{ icon = self.icon }`, and IconWidget:init() ALWAYS treats
--- a non-file, non-image `.icon` as a bare NAME to search for under
--- ICONS_DIRS + {".svg",".png"} (see ui/widget/iconwidget.lua) — it never
--- accepts a literal file path. Assigning a full custom path straight into
--- `tab.icon` (as an earlier version of this code did) therefore always
+-- Unlike every other icon slot in this file — which SimpleUI renders itself
+-- via ImageWidget/IconWidget with `.file = path`, so any absolute/relative
+-- path works — tab-bar icons are rendered by KOReader's OWN native widgets:
+-- TouchMenu → TouchMenuBar → IconButton → IconWidget. IconButton
+-- unconditionally does `IconWidget:new{ icon = self.icon }`, and
+-- IconWidget:init() ALWAYS treats a non-file, non-image `.icon` as a bare
+-- NAME to search for under ICONS_DIRS + {".svg",".png"} (see
+-- ui/widget/iconwidget.lua) — it never accepts a literal file path.
+-- Assigning a full custom path straight into `tab.icon` therefore always
 -- resolves to icon-not-found.
 --
--- The fix — and the same trick sui_quicksettings_bar.lua already uses to
--- make "simpleui_settings" resolve — is to REGISTER the custom icon under
+-- The same trick sui_quicksettings_bar.lua already uses to make
+-- "simpleui_settings" resolve applies here too: REGISTER the custom icon under
 -- a stable bare name:
 --   1. Copy the file to DataStorage/icons/<name>.<ext> (disk-based lookup;
 --      ICONS_DIRS always searches the user icons dir first, so this alone
@@ -853,7 +805,7 @@ end
 -- setUpdateItemTable() when `self.tab_item_table == nil` (build-once, cache
 -- forever per instance). Patching onShowMenu instead of setUpdateItemTable
 -- guarantees our override runs on *every* menu opening, and — critically —
--- runs it by forcing the table to be built (via a dynamic `fmm_self:
+-- runs it by forcing the table to be built (via a dynamic `menu_self:
 -- setUpdateItemTable()` call, which resolves to whatever version is
 -- currently installed, including sui_quicksettings_bar's own tab-injection
 -- wrap) *before* delegating to the untouched native onShowMenu that
@@ -870,86 +822,72 @@ end
 -- ordering altogether. applyTabIcons() below still matches it too, as a
 -- harmless no-op confirmation once it's present in a given tab_item_table.
 
-local _fm_patch_installed     = false
-local _reader_patch_installed = false
+-- Descriptors for the two patch targets: module path, the plugin-instance
+-- flag name (read/cleared by sui_patches.lua on teardown), and a log label.
+local _TAB_PATCH_TARGETS = {
+    fm = {
+        module_path  = "apps/filemanager/filemanagermenu",
+        plugin_flag  = "_sysicon_fmmenu_patched",
+        log_label    = "FM",
+    },
+    reader = {
+        module_path  = "apps/reader/modules/readermenu",
+        plugin_flag  = "_sysicon_rdmenu_patched",
+        log_label    = "Reader",
+    },
+}
 
-function M.installTabIconPatch(plugin)
-    if _fm_patch_installed then return end
-    local FMMenu = package.loaded["apps/filemanager/filemanagermenu"]
-    if not FMMenu then
-        local ok, m = pcall(require, "apps/filemanager/filemanagermenu")
-        FMMenu = ok and m or nil
+-- installed[target] tracks whether _installTabPatch has already run for
+-- that target, so repeated calls (e.g. on plugin re-init) are no-ops.
+local _tab_patch_installed = { fm = false, reader = false }
+
+local function _installTabPatch(target, plugin)
+    if _tab_patch_installed[target] then return end
+    local t = _TAB_PATCH_TARGETS[target]
+    local Menu = package.loaded[t.module_path]
+    if not Menu then
+        local ok, m = pcall(require, t.module_path)
+        Menu = ok and m or nil
     end
-    if not FMMenu then return end
-    if FMMenu._simpleui_sysicon_patched then return end
+    if not Menu then return end
+    if Menu._simpleui_sysicon_patched then return end
 
-    local orig = FMMenu.onShowMenu
-    FMMenu._simpleui_sysicon_orig    = orig
-    FMMenu._simpleui_sysicon_patched = true
-    if plugin then plugin._sysicon_fmmenu_patched = true end
+    local orig = Menu.onShowMenu
+    Menu._simpleui_sysicon_orig    = orig
+    Menu._simpleui_sysicon_patched = true
+    if plugin then plugin[t.plugin_flag] = true end
 
-    FMMenu.onShowMenu = function(fmm_self, ...)
-        if fmm_self.tab_item_table == nil then
-            fmm_self:setUpdateItemTable()
+    Menu.onShowMenu = function(menu_self, ...)
+        if menu_self.tab_item_table == nil then
+            menu_self:setUpdateItemTable()
         end
-        if fmm_self.tab_item_table then
-            M.applyTabIcons(fmm_self.tab_item_table)
+        if menu_self.tab_item_table then
+            M.applyTabIcons(menu_self.tab_item_table)
         end
-        return orig(fmm_self, ...)
+        return orig(menu_self, ...)
     end
 
-    _fm_patch_installed = true
-    logger.dbg("simpleui/style: FM tab icon patch installed")
+    _tab_patch_installed[target] = true
+    logger.dbg("simpleui/style: " .. t.log_label .. " tab icon patch installed")
 end
 
-function M.removeTabIconPatch()
-    if not _fm_patch_installed then return end
-    local FMMenu = package.loaded["apps/filemanager/filemanagermenu"]
-    if FMMenu and FMMenu._simpleui_sysicon_patched then
-        FMMenu.onShowMenu                = FMMenu._simpleui_sysicon_orig
-        FMMenu._simpleui_sysicon_orig    = nil
-        FMMenu._simpleui_sysicon_patched = nil
+local function _removeTabPatch(target)
+    if not _tab_patch_installed[target] then return end
+    local t = _TAB_PATCH_TARGETS[target]
+    local Menu = package.loaded[t.module_path]
+    if Menu and Menu._simpleui_sysicon_patched then
+        Menu.onShowMenu                = Menu._simpleui_sysicon_orig
+        Menu._simpleui_sysicon_orig    = nil
+        Menu._simpleui_sysicon_patched = nil
     end
-    _fm_patch_installed = false
-    logger.dbg("simpleui/style: FM tab icon patch removed")
+    _tab_patch_installed[target] = false
+    logger.dbg("simpleui/style: " .. t.log_label .. " tab icon patch removed")
 end
 
-function M.installReaderTabIconPatch(plugin)
-    if _reader_patch_installed then return end
-    local ok, RMenu = pcall(require, "apps/reader/modules/readermenu")
-    if not ok or not RMenu then return end
-    if RMenu._simpleui_sysicon_patched then return end
-
-    local orig = RMenu.onShowMenu
-    RMenu._simpleui_sysicon_orig    = orig
-    RMenu._simpleui_sysicon_patched = true
-    if plugin then plugin._sysicon_rdmenu_patched = true end
-
-    RMenu.onShowMenu = function(rm_self, ...)
-        if rm_self.tab_item_table == nil then
-            rm_self:setUpdateItemTable()
-        end
-        if rm_self.tab_item_table then
-            M.applyTabIcons(rm_self.tab_item_table)
-        end
-        return orig(rm_self, ...)
-    end
-
-    _reader_patch_installed = true
-    logger.dbg("simpleui/style: Reader tab icon patch installed")
-end
-
-function M.removeReaderTabIconPatch()
-    if not _reader_patch_installed then return end
-    local RMenu = package.loaded["apps/reader/modules/readermenu"]
-    if RMenu and RMenu._simpleui_sysicon_patched then
-        RMenu.onShowMenu                = RMenu._simpleui_sysicon_orig
-        RMenu._simpleui_sysicon_orig    = nil
-        RMenu._simpleui_sysicon_patched = nil
-    end
-    _reader_patch_installed = false
-    logger.dbg("simpleui/style: Reader tab icon patch removed")
-end
+function M.installTabIconPatch(plugin)       _installTabPatch("fm", plugin) end
+function M.removeTabIconPatch()              _removeTabPatch("fm") end
+function M.installReaderTabIconPatch(plugin) _installTabPatch("reader", plugin) end
+function M.removeReaderTabIconPatch()        _removeTabPatch("reader") end
 
 -- ---------------------------------------------------------------------------
 -- Live tab-bar icon refresh
@@ -999,7 +937,7 @@ function M.makeMenuItems(plugin)
     end
 
     -- Helper: reapply titlebar icons to the live FM and all injected widgets.
-local function _reapplyTitlebar()
+    local function _reapplyTitlebar()
         local ok_tb, TB = pcall(require, "screens/sui_titlebar")
         if not ok_tb or not TB then return end
         local fm = _fm()
@@ -1090,11 +1028,6 @@ local function _reapplyTitlebar()
         end
     end
 
-    -- ── Section heading helper ───────────────────────────────────────────
-    local function _sep(label)
-        return { text = label, is_title = true }
-    end
-
     -- ── One row per slot ─────────────────────────────────────────────────
     local function _makeRow(slot)
         return {
@@ -1152,18 +1085,22 @@ local function _reapplyTitlebar()
         separator      = true,
     }
 
-    -- ── sui_titlebar group ────────────────────────────────────────────────
-    for _, slot in ipairs(M.SLOTS) do
-        if slot.group == "sui_titlebar" then
-            items[#items + 1] = _makeRow(slot)
+    -- Appends one row per slot in `group_id`, in M.SLOTS order.
+    local function _addGroupRows(group_id)
+        for _, slot in ipairs(M.SLOTS) do
+            if slot.group == group_id then
+                items[#items + 1] = _makeRow(slot)
+            end
         end
     end
 
-    -- ── bm_icons group ───────────────────────────────────────────────────
+    _addGroupRows("sui_titlebar")
+
+    -- Browse icons additionally need the live browse button refreshed after
+    -- a change, so wrap the row's callback instead of using _addGroupRows.
     for _, slot in ipairs(M.SLOTS) do
         if slot.group == "sui_browse_icons" then
             local row = _makeRow(slot)
-            -- After changing a browse icon, refresh the live browse button.
             local orig_cb = row.callback
             row.callback = function()
                 orig_cb()
@@ -1176,33 +1113,10 @@ local function _reapplyTitlebar()
         end
     end
 
-    -- ── pg_icons group (pagination chevrons) ─────────────────────────────
-    for _, slot in ipairs(M.SLOTS) do
-        if slot.group == "sui_pager_icons" then
-            items[#items + 1] = _makeRow(slot)
-        end
-    end
-
-    -- ── sui_navpager_icons group (Navpager) ──────────────────────────────
-    for _, slot in ipairs(M.SLOTS) do
-        if slot.group == "sui_navpager_icons" then
-            items[#items + 1] = _makeRow(slot)
-        end
-    end
-
-    -- ── sui_fc_icons group ───────────────────────────────────────────────
-    for _, slot in ipairs(M.SLOTS) do
-        if slot.group == "sui_fc_icons" then
-            items[#items + 1] = _makeRow(slot)
-        end
-    end
-
-    -- ── sui_tabbar_icons group (touch menu tabs) ─────────────────────────
-    for _, slot in ipairs(M.SLOTS) do
-        if slot.group == "sui_tabbar_icons" then
-            items[#items + 1] = _makeRow(slot)
-        end
-    end
+    _addGroupRows("sui_pager_icons")
+    _addGroupRows("sui_navpager_icons")
+    _addGroupRows("sui_fc_icons")
+    _addGroupRows("sui_tabbar_icons")
 
     return items
 end
@@ -1233,11 +1147,11 @@ function M.sui_build_system_icons(plugin, ctx_menu, ctx)
                 icon_widget = TextWidget:new{
                     text    = nerd_char,
                     face    = Font:getFace(M.FACE_ICONS, math.floor(icon_size * 0.8)),
-                    fgcolor = Blitbuffer.COLOR_BLACK,
+                    fgcolor = M.COLOR.text_primary,
                     padding = 0,
                 }
             end
-        elseif icon_path and M.safeIconPath then
+        elseif icon_path then
             local safe_path = M.safeIconPath(icon_path, nil)
             if safe_path then
                 local iw = ImageWidget:new{
@@ -1267,7 +1181,7 @@ function M.sui_build_system_icons(plugin, ctx_menu, ctx)
             icon_widget = TextWidget:new{
                 text    = fallback_label and fallback_label:sub(1, 1):upper() or "?",
                 face    = Font:getFace("cfont", math.floor(icon_size * 0.7)),
-                fgcolor = Blitbuffer.COLOR_BLACK,
+                fgcolor = M.COLOR.text_primary,
             }
         end
         
@@ -1275,8 +1189,8 @@ function M.sui_build_system_icons(plugin, ctx_menu, ctx)
             dimen      = Geom:new{ w = btn_size, h = btn_size },
             radius     = Screen:scaleBySize(8),
             bordersize = border_sz,
-            background = Blitbuffer.COLOR_WHITE,
-            color      = Blitbuffer.gray(0.75),
+            background = M.COLOR.surface,
+            color      = M.COLOR.gray,
             padding    = 0,
             [1]        = CenterContainer:new{
                 dimen = Geom:new{ w = btn_size - border_sz * 2, h = btn_size - border_sz * 2 },
@@ -1449,12 +1363,116 @@ M.FS_BODY     = _fs(18)
 M.FS_DETAIL   = _fs(15)
 M.FS_CAPTION  = _fs(12)
 
+-- ---------------------------------------------------------------------------
+-- SUI Color Palette
+-- ---------------------------------------------------------------------------
+-- Semantic color tokens used across all SimpleUI modules. Change values only
+-- here — every module derives its colors from this table.
+-- Usage: fgcolor = SUIStyle.COLOR.text_dim
+--
+--  text_primary         — primary text, active icons/borders (black).
+--  text_secondary       — secondary text (e.g. onboarding subtitles).
+--  text_dim             — inactive/dim text or icons (e.g. opts.dim
+--                         variants, chart axis labels).
+--  surface              — solid light background / "eraser" fill.
+--  surface_flat         — flat dark background (flat-style cards, bars).
+--  gray                 — medium-weight gray: card and frame borders, the
+--                         bottom bar separator, the book cover spine/edge
+--                         line, accent borders on active controls (progress
+--                         bar fg, focused buttons/icons), and muted chart bars.
+--  gray_strong          — darker gray: menu and list separator lines, light
+--                         circular fills, the placeholder background behind
+--                         book covers, and muted icon fills.
+--  gray_soft            — lighter gray, used where gray_strong would be too
+--                         heavy (e.g. onboarding, cover widgets) — also the
+--                         border color for library/book-grid badges.
+--  track                — progress bar / badge track background.
+--  disabled             — disabled control/icon state.
+--  debug                — debug-only visual overlays.
+M.COLOR = {
+    text_primary         = Blitbuffer.COLOR_BLACK,
+    text_secondary       = Blitbuffer.COLOR_DARK_GRAY,
+    text_dim             = Blitbuffer.gray(0.45),
+    surface              = Blitbuffer.COLOR_WHITE,
+    surface_flat         = Blitbuffer.gray(0.08),
+    gray                 = Blitbuffer.gray(0.72),
+    gray_strong          = Blitbuffer.gray(0.85),
+    gray_soft            = Blitbuffer.gray(0.33),
+    track                = Blitbuffer.gray(0.15),
+    disabled             = Blitbuffer.gray(0.25),
+    debug                = Blitbuffer.COLOR_RED,
+}
+
 -- Global border thickness for all frames and elements
 M.BORDER_SZ   = math.max(1, Screen:scaleBySize(1))
 
+-- ---------------------------------------------------------------------------
+-- computeBox(show_frame, solid_bg, scale, pad) — style and sizing for the
+-- optional Frame/Background box offered by every homescreen card that has
+-- one.
+--
+-- `outer_margin` keeps the box's own visible edge — border and/or solid
+-- background — aligned with sectionLabel's own left/right text inset
+-- (engines/sui_screen_engine.lua), instead of flush against the module's
+-- true outer edges. `inner_pad` is the breathing room between that edge
+-- and the content, reserved only while the box is actually shown; with no
+-- frame and no background there's nothing to leave room between, so
+-- content sits directly at outer_margin, matching the label above it.
+--
+-- inset_h always reserves outer_margin on both sides — the label's own
+-- inset is unconditional too, so this keeps content aligned with it
+-- whether or not the box is currently shown. inset_v has no outer_margin
+-- term: there's no label edge to align against vertically.
+-- ---------------------------------------------------------------------------
+function M.computeBox(show_frame, solid_bg, scale, pad)
+    local has_box   = show_frame or solid_bg
+    local border_sz = show_frame and M.BORDER_SZ or 0
+    local inner_pad = has_box and pad or 0
+    return {
+        has_box      = has_box,
+        border_sz    = border_sz,
+        radius       = has_box and math.floor(Screen:scaleBySize(12) * (scale or 1)) or 0,
+        border_color = M.COLOR.gray,
+        bg_color     = solid_bg and M.COLOR.surface or nil,
+        outer_margin = pad,
+        inner_pad    = inner_pad,
+        inset_h = pad * 2 + inner_pad * 2 + border_sz * 2,
+        inset_v = inner_pad * 2 + border_sz * 2,
+    }
+end
+
+-- ---------------------------------------------------------------------------
+-- wrapBox(content, box) — wraps `content` (already sized to fit within
+-- box.inset_h/inset_v less than the module's own w) in the optional Frame/
+-- Background box computed by computeBox(). The box's own edge sits inset
+-- by box.outer_margin on the left and right, so it lines up with
+-- sectionLabel's text above it instead of extending past it to the
+-- column's true edges. The returned widget's total width is exactly the
+-- w originally passed to computeBox.
+-- ---------------------------------------------------------------------------
+function M.wrapBox(content, box)
+    local inner = FrameContainer:new{
+        bordersize     = box.border_sz,
+        radius         = box.radius,
+        color          = box.border_color,
+        background     = box.bg_color,
+        padding        = box.inner_pad,
+        padding_top    = box.has_box and box.inner_pad or 0,
+        padding_bottom = box.has_box and box.inner_pad or 0,
+        content,
+    }
+    if box.outer_margin <= 0 then return inner end
+    return HorizontalGroup:new{
+        align = "top",
+        HorizontalSpan:new{ width = box.outer_margin },
+        inner,
+        HorizontalSpan:new{ width = box.outer_margin },
+    }
+end
+
 -- Thinner border and specific color for library badges and book covers
 M.BADGE_BORDER_SZ  = require("ui/size").border.thin
-M.BADGE_BORDER_CLR = Blitbuffer.COLOR_GRAY
+M.BADGE_BORDER_CLR = M.COLOR.gray_soft
 
 -- Global size trim applied on top of every corner-badge scale (progress
 -- pentagon, pages, series index, new book) — both the Library grid's own
@@ -1525,6 +1543,7 @@ M.ICON = {
     move_page  = "\u{F0EC}", -- exchange / move
     update     = "\u{E769}", -- update / sync
     hide       = "\u{E908}", -- eye-off / hide (NerdFonts)
+    show       = "\u{E907}", -- eye / show (NerdFonts)
 
     -- State / Content
     goal     = "\u{E153}",   -- flag (reading goals)
@@ -1542,7 +1561,7 @@ M.ICON = {
 --- Returns the icon glyph named `name`, or "" if it doesn't exist.
 --- Usage: TextWidget:new{ text = SUIStyle.icon("chevron"), face = ... }
 ---
---- @param name string  chave de M.ICON
+--- @param name string  key into M.ICON
 --- @return string
 function M.icon(name)
     return M.ICON[name] or ""
@@ -1578,32 +1597,24 @@ local _replaced      = nil   -- map: Font.fontmap slot → "regular"|"bold"
 
 -- ── Lazy module accessors ────────────────────────────────────────────────
 
-local function _reqFont()
-    local ok, m = pcall(require, "ui/font"); return ok and m or nil
+-- Requires `modname`, returning nil instead of raising when it's unavailable.
+local function _req(modname)
+    local ok, m = pcall(require, modname)
+    return ok and m or nil
 end
-local function _reqFontList()
-    local ok, m = pcall(require, "fontlist"); return ok and m or nil
-end
+local function _reqFont()     return _req("ui/font") end
+local function _reqFontList() return _req("fontlist") end
+local function _reqUIManager() return _req("ui/uimanager") end
+local function _reqLFS()      return _req("libs/libkoreader-lfs") end
+
+-- Loads the cre C module. Primary path goes through CreDocument:engineInit(),
+-- which works in both the reader and the file manager; falls back to
+-- requiring libkoreader-cre directly for builds where it's pre-loaded.
 local function _reqCRE()
-    -- Primary path: via CreDocument:engineInit() which loads and returns the
-    -- cre C module.  This works in both the reader and the file manager.
     local ok, m = pcall(function()
         return require("document/credocument"):engineInit()
     end)
-    if ok and m then return m end
-    -- Fallback: the cre library may already be loaded as a standalone module
-    -- (happens in some KOReader builds where it is pre-required).
-    local ok2, m2 = pcall(require, "libs/libkoreader-cre")
-    return ok2 and m2 or nil
-end
-local function _reqUIManager()
-    local ok, m = pcall(require, "ui/uimanager"); return ok and m or nil
-end
-local function _reqLFS()
-    local ok, m = pcall(require, "libs/libkoreader-lfs"); return ok and m or nil
-end
-local function _reqDataStorage()
-    local ok, m = pcall(require, "datastorage"); return ok and m or nil
+    return (ok and m) or _req("libs/libkoreader-cre")
 end
 
 -- ── Path helpers ─────────────────────────────────────────────────────────
@@ -1840,381 +1851,6 @@ function M.makeFontMenuItems()
     return items
 end
 
--- ===========================================================================
--- Theme Colors
--- ===========================================================================
--- Granular per-role colour overrides for every SimpleUI surface.
--- All keys use the "simpleui_style_" prefix so that homescreen presets
--- capture them automatically (HS_PREFIXES in sui_presets.lua covers it).
---
--- Color storage
--- ─────────────
--- Hex strings (#RRGGBB) are stored in settings.  At read-time they are
--- converted to Blitbuffer colors via Blitbuffer.colorFromString(), which
--- preserves the full RGB value.  On a greyscale e-ink panel the hardware
--- renders the perceived luminance — the user can therefore enter any HTML
--- color and it will look "right" without us forcing a luma conversion.
---
--- Role catalogue
--- ──────────────
--- "bg"              Homescreen background (also fallback for bars when their
---                   own role is unset).
--- "fg"              Homescreen primary text (also fallback for bar text).
--- "bottombar_bg"    Bottom navigation bar background.
--- "bottombar_fg"    Bottom navigation bar icon / label text.
--- "statusbar_bg"    Top status bar background.
--- "statusbar_fg"    Top status bar text (clock, battery, …).
--- "text_secondary"  Secondary / dim text — inactive nav items, sub-labels,
---                   mid-tone homescreen captions.
--- "separator"       Thin divider line between bars and content.
--- "accent"          Active / highlighted element (active nav item, pager
---                   arrows, etc.).
---
--- Fallback chain (getThemeColor)
--- ───────────────────────────────
--- bottombar_bg  → bg  → nil (caller uses its own default)
--- bottombar_fg  → fg  → nil
--- statusbar_bg  → bg  → nil
--- statusbar_fg  → fg  → nil
--- text_secondary → nil  (callers have their own grey default)
--- separator      → nil
--- accent         → nil
-
--- Settings keys — all under simpleui_style_ so presets pick them up.
-local _ROLE_KEYS = {
-    bg              = "simpleui_style_theme_bg",
-    fg              = "simpleui_style_theme_fg",
-    bottombar_bg    = "simpleui_style_theme_bottombar_bg",
-    bottombar_fg    = "simpleui_style_theme_bottombar_fg",
-    statusbar_bg    = "simpleui_style_theme_statusbar_bg",
-    statusbar_fg    = "simpleui_style_theme_statusbar_fg",
-    text_secondary  = "simpleui_style_theme_text_secondary",
-    separator       = "simpleui_style_theme_separator",
-    accent          = "simpleui_style_theme_accent",
-    progress_bg     = "simpleui_style_theme_progress_bg",
-    progress_fg     = "simpleui_style_theme_progress_fg",
-}
-
--- Fallback chain: if role has no value, try these roles in order.
-local _FALLBACKS = {
-    bottombar_bg = { "bg" },
-    bottombar_fg = { "fg" },
-    statusbar_bg = { "bg" },
-    statusbar_fg = { "fg" },
-    progress_fg  = { "accent", "fg" },
-}
-
--- In-memory cache: role → Blitbuffer color OR false ("tested, not set").
--- false avoids a store lookup on every paintTo().
--- Invalidated by setThemeColor() / resetTheme().
-local _color_cache = {}
-
---- Converts "#RRGGBB" or "RRGGBB" to a full-colour Blitbuffer color.
---- Uses colorFromString when available (KOReader ≥ 2022), falls back to
---- a manual ColorRGB32 construction so older builds still work.
---- Returns nil on any parse error.
-local function _hexToColor(hex)
-    if type(hex) ~= "string" then return nil end
-    local s = hex:match("^#?(%x%x%x%x%x%x)$")
-    if not s then return nil end
-    -- Prefer the built-in parser — it handles device colour depth correctly.
-    if Blitbuffer.colorFromString then
-        local normalized = "#" .. s:upper()
-        local ok, c = pcall(Blitbuffer.colorFromString, normalized)
-        if ok and c then return c end
-    end
-    -- Fallback: construct via ColorRGB32.
-    local r = tonumber(s:sub(1, 2), 16)
-    local g = tonumber(s:sub(3, 4), 16)
-    local b = tonumber(s:sub(5, 6), 16)
-    local ok2, c2 = pcall(Blitbuffer.ColorRGB32, r, g, b, 0)
-    return ok2 and c2 or nil
-end
-
-local function _invalidateColorCache()
-    _color_cache = {}
-end
-
---- Returns the Blitbuffer color for `role`, respecting the fallback chain,
---- or nil when no custom color is set anywhere in the chain.
----
---- NOTE on cache safety: Blitbuffer cdata colors have an __eq metamethod that
---- crashes LuaJIT when either operand is non-color.  We use type() checks and
---- the boolean sentinel (false) instead of equality comparisons.
-function M.getThemeColor(role)
-    -- 1. Check cache for this role.
-    local cached = _color_cache[role]
-    local ct = type(cached)
-    if ct == "boolean" then
-        -- sentinel false → already resolved to nil for this role
-        return nil
-    elseif ct ~= "nil" then
-        return cached   -- valid color object
-    end
-
-    -- 2. Try the role's own key.
-    local key = _ROLE_KEYS[role]
-    if key then
-        local c = _hexToColor(SUISettings:get(key))
-        if c then
-            _color_cache[role] = c
-            return c
-        end
-    end
-
-    -- 3. Walk fallback chain.
-    local fallbacks = _FALLBACKS[role]
-    if fallbacks then
-        for _, fb_role in ipairs(fallbacks) do
-            local fb_key = _ROLE_KEYS[fb_role]
-            if fb_key then
-                local c = _hexToColor(SUISettings:get(fb_key))
-                if c then
-                    _color_cache[role] = c
-                    return c
-                end
-            end
-        end
-    end
-
-    -- 4. Nothing found — cache the sentinel so we skip the store next time.
-    _color_cache[role] = false
-    return nil
-end
-
---- Saves `hex` ("#RRGGBB" / "RRGGBB") for `role`.
---- [DISABLED — theme color write/UI not ready for release]
---[==[
---- Saves `hex` ("#RRGGBB" / "RRGGBB") for `role`.
---- Pass nil or "" to reset the role to its default.
---- Invalidates the full in-memory cache (roles may depend on each other via
---- the fallback chain, so we can't invalidate selectively).
-function M.setThemeColor(role, hex)
-    local key = _ROLE_KEYS[role]
-    if not key then return end
-    if type(hex) == "string" and hex:match("^#?%x%x%x%x%x%x$") then
-        SUISettings:set(key, hex:upper():gsub("^([^#])", "#%1"))
-    else
-        SUISettings:del(key)
-    end
-    _invalidateColorCache()
-    logger.dbg("simpleui/style/theme: setThemeColor", role, "→", hex or "(reset)")
-end
-
---- Clears every theme color override and invalidates the cache.
-function M.resetTheme()
-    for _, key in pairs(_ROLE_KEYS) do
-        SUISettings:del(key)
-    end
-    _invalidateColorCache()
-    logger.dbg("simpleui/style/theme: resetTheme")
-end
-
--- ---------------------------------------------------------------------------
--- Preset palettes — shown as quick-fill shortcuts in the menu.
--- Each preset is a flat table of role → hex.
--- ---------------------------------------------------------------------------
-local _PRESETS = {
-    {
-        label = _("Warm Paper"),
-        colors = {
-            bg             = "#F5F0E8",
-            fg             = "#1A1008",
-            bottombar_bg   = "#EDE8DF",
-            bottombar_fg   = "#1A1008",
-            statusbar_bg   = "#EDE8DF",
-            statusbar_fg   = "#1A1008",
-            text_secondary = "#6B5B45",
-            separator      = "#C8C0B0",
-            accent         = "#8B5E3C",
-        },
-    },
-    {
-        label = _("Dark Slate"),
-        colors = {
-            bg             = "#1C1C1E",
-            fg             = "#E5E5EA",
-            bottombar_bg   = "#2C2C2E",
-            bottombar_fg   = "#E5E5EA",
-            statusbar_bg   = "#2C2C2E",
-            statusbar_fg   = "#E5E5EA",
-            text_secondary = "#8E8E93",
-            separator      = "#3A3A3C",
-            accent         = "#0A84FF",
-        },
-    },
-    {
-        label = _("Cool Mist"),
-        colors = {
-            bg             = "#EEF2F7",
-            fg             = "#1C2B3A",
-            bottombar_bg   = "#E4EAF2",
-            bottombar_fg   = "#1C2B3A",
-            statusbar_bg   = "#E4EAF2",
-            statusbar_fg   = "#1C2B3A",
-            text_secondary = "#5A7080",
-            separator      = "#C0CDD8",
-            accent         = "#2D6A9F",
-        },
-    },
-    {
-        label = _("Sepia Classic"),
-        colors = {
-            bg             = "#FAEBD7",
-            fg             = "#3B2A1A",
-            bottombar_bg   = "#F0DFC0",
-            bottombar_fg   = "#3B2A1A",
-            statusbar_bg   = "#F0DFC0",
-            statusbar_fg   = "#3B2A1A",
-            text_secondary = "#7A5C40",
-            separator      = "#D4B896",
-            accent         = "#9B5B2A",
-        },
-    },
-}
-
--- ---------------------------------------------------------------------------
--- Menu builder
--- ---------------------------------------------------------------------------
-
---- Returns the sub_item_table for Style ▸ Theme Colors.
---- Uses InputDialog (hex entry) — no external color picker widget required.
-function M.makeThemeMenuItems()
-    -- Ordered role definitions for the menu rows.
-    -- Grouped by COLOR TYPE (not by UI location) so the user can find all
-    -- "background" or "text" settings in one place regardless of which bar
-    -- they belong to.  Section titles are kept to one per group; the old
-    -- per-location titles (Homescreen / Bottom Bar / Status Bar / Details)
-    -- have been removed as they were redundant with the label text itself.
-    local _ROLES = {
-        { role = "bg",             label = _("Home Screen — Background") },
-        { role = "bottombar_bg",   label = _("Navigation Bar — Background") },
-        { role = "statusbar_bg",   label = _("Status Bar — Background") },
-        { role = "fg",             label = _("Home Screen — Text") },
-        { role = "bottombar_fg",   label = _("Navigation Bar — Text and Icons") },
-        { role = "statusbar_fg",   label = _("Status Bar — Text") },
-        { role = "text_secondary", label = _("Secondary / Dim Text") },
-        { role = "separator",      label = _("Separator Line") },
-        { role = "accent",         label = _("Accent / Active Color") },
-    }
-
-    -- Shared helpers ------------------------------------------------------------
-    local function _openInputDialog(role, label_str)
-        local ok_id, InputDialog = pcall(require, "ui/widget/inputdialog")
-        local ok_ui, UIManager   = pcall(require, "ui/uimanager")
-        local ok_hs, HS          = pcall(require, "screens/sui_homescreen")
-        if not (ok_id and ok_ui) then return end
-
-        local key     = _ROLE_KEYS[role]
-        local current = (key and SUISettings:get(key)) or ""
-        local dlg
-        dlg = InputDialog:new{
-            title       = label_str,
-            input       = current,
-            input_hint  = _("e.g. #F5F0E8  or #1C1C1E  (empty = reset)"),
-            description = _("Enter a hex color (#RRGGBB). On greyscale e-ink the perceived brightness is used."),
-            buttons     = {{
-                {
-                    text     = _("Cancel"),
-                    callback = function() UIManager:close(dlg) end,
-                },
-                {
-                    text             = _("Apply"),
-                    is_enter_default = true,
-                    callback         = function()
-                        local v = dlg:getInputText():gsub("%s", "")
-                        M.setThemeColor(role, v ~= "" and v or nil)
-                        UIManager:close(dlg)
-                        if ok_hs and HS and HS.rebuildLayout then
-                            HS.rebuildLayout()
-                        end
-                    end,
-                },
-            }},
-        }
-        UIManager:show(dlg)
-    end
-
-    local function _makeRow(role_def)
-        local role      = role_def.role
-        local label_str = role_def.label
-        return {
-            text_func = function()
-                local key = _ROLE_KEYS[role]
-                local hex = key and SUISettings:get(key)
-                -- Show the stored hex + edit pencil when a custom value is set.
-                -- When using a fallback we show a subtle "(fallback)" note.
-                if hex and hex ~= "" then
-                    return label_str .. "  [" .. hex .. "]  \u{270E}"
-                end
-                -- Visual hint when this role inherits from a fallback.
-                local fb = _FALLBACKS[role]
-                if fb then
-                    local fb_key = _ROLE_KEYS[fb[1]]
-                    if fb_key and SUISettings:get(fb_key) then
-                        return label_str .. "  \u{21B3}"   -- ↳ (inherits)
-                    end
-                end
-                return label_str
-            end,
-            keep_menu_open = true,
-            callback = function()
-                _openInputDialog(role, label_str)
-            end,
-        }
-    end
-
-    -- ── Build item list ───────────────────────────────────────────────────
-    local items = {}
-
-    -- Quick-fill preset submenu at the top.
-    items[#items + 1] = {
-        text = _("Apply Palette…"),
-        sub_item_table_func = function()
-            local preset_items = {}
-            for _, preset in ipairs(_PRESETS) do
-                local _preset = preset
-                preset_items[#preset_items + 1] = {
-                    text           = _preset.label,
-                    keep_menu_open = true,
-                    callback       = function()
-                        for role, hex in pairs(_preset.colors) do
-                            M.setThemeColor(role, hex)
-                        end
-                        local ok_ui, UIManager = pcall(require, "ui/uimanager")
-                        local ok_hs, HS        = pcall(require, "screens/sui_homescreen")
-                        if ok_ui and UIManager then UIManager:setDirty("all", "ui") end
-                        if ok_hs and HS and HS.rebuildLayout then HS.rebuildLayout() end
-                    end,
-                }
-            end
-            return preset_items
-        end,
-    }
-
-    -- Individual role rows — no section titles.
-    for _, role_def in ipairs(_ROLES) do
-        items[#items + 1] = _makeRow(role_def)
-    end
-
-    -- Reset all at the bottom.
-    items[#items + 1] = {
-        text     = _("Reset All Theme Colors"),
-        callback = function()
-            local ok_ui, UIManager = pcall(require, "ui/uimanager")
-            local ok_hs, HS        = pcall(require, "screens/sui_homescreen")
-            M.resetTheme()
-            if ok_ui and UIManager then UIManager:setDirty("all", "ui") end
-            if ok_hs and HS and HS.rebuildLayout then HS.rebuildLayout() end
-        end,
-    }
-
---]==]
--- Disabled stubs so callers don't error:
-function M.setThemeColor(role, hex) end  -- stub: disabled
-function M.resetTheme() end              -- stub: disabled
-function M.makeThemeMenuItems() return {} end  -- stub: disabled
-
 -- ---------------------------------------------------------------------------
 -- Icon Packs
 -- ---------------------------------------------------------------------------
@@ -2226,7 +1862,7 @@ end
 
 local _ACTION_SET = {
     library=true, homescreen=true, collections=true, history=true, continue=true,
-    favorites=true, bookmark_browser=true, wifi_toggle=true, wifi_toggle_off=true, frontlight=true,
+    favorites=true, bookmark_browser=true, wifi_toggle=true, frontlight=true,
     night_mode=true,
     stats_calendar=true, power=true, browse_authors=true, browse_series=true, browse_tags=true,
     settings=true,

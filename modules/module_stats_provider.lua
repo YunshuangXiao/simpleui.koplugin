@@ -282,7 +282,19 @@ local function _openAndCacheSidecar(fp, DocSettings, SH)
             summary              = summary,
         })
     end
-    pcall(function() ds:close() end)
+    -- No ds:close() here on purpose: this DocSettings handle is only ever
+    -- read from (readSetting), never written to, but close()/flush() in
+    -- KOReader unconditionally rewrites the whole metadata.*.lua sidecar
+    -- file regardless of whether anything actually changed (no
+    -- dirty-tracking — see https://github.com/koreader/koreader/issues/2789).
+    -- Closing here turns every sidecar scan (countMarkedReadBoth,
+    -- getStatusCounts — both called from the homescreen's post-cold-open
+    -- stats refresh) into a full disk write per book, stretching what
+    -- should be an instant correction pass into a multi-second one and
+    -- causing a visible homescreen reflow/blink. Same fix already applied
+    -- in module_books_shared.lua's SH.prefetchBooks() — see the matching
+    -- comment there. Not calling close() is safe for read-only use; the
+    -- handle is simply garbage-collected.
     return summary, percent, md5
 end
 

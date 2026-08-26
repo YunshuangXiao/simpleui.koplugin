@@ -105,12 +105,9 @@ local _BASE_BADGE_FS     = 8   -- badge font (~0.375 x badge_sz) — proportiona
 local _BASE_EMPTY_H      = Screen:scaleBySize(36)
 local _BASE_EMPTY_FS     = SUIStyle.FS_BODY     -- 18: empty state
 
-local EDGE_COLOR = Blitbuffer.gray(0.70)
 local EDGE_H1    = 0.97   -- inner line height fraction of COLL_H
 local EDGE_H2    = 0.94   -- outer line height fraction
 
-local _CLR_COVER_BORDER = Blitbuffer.COLOR_BLACK
-local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
 
 local LABEL_H = UI.LABEL_H  -- kept for any external callers; getHeight() uses getScaledLabelH()
 
@@ -537,9 +534,45 @@ local SORT_MODE_LABELS = {
 }
 local SORT_MODE_ORDER = { "manual", "alpha_asc", "alpha_desc" }
 
+-- _orderCollections(names) — applies the current sort mode to an arbitrary
+-- list of collection names. Shared by getVisibleCollections (excluded ones
+-- filtered out first) and getAllCollectionsOrdered (nothing filtered, used
+-- by the Arrange screen so hidden collections keep a stable position
+-- instead of jumping around as they're toggled).
+local function _orderCollections(names)
+    local mode = getSortMode()
+    if mode == "alpha_asc" or mode == "alpha_desc" then
+        local sorted = {}
+        for _, n in ipairs(names) do sorted[#sorted + 1] = n end
+        table.sort(sorted, function(a, b)
+            local da, db = displayNameFor(a):lower(), displayNameFor(b):lower()
+            if mode == "alpha_desc" then return da > db end
+            return da < db
+        end)
+        return sorted
+    end
+
+    -- "manual": known items in their persisted arrangement order; anything
+    -- not yet in that order (freshly created collections, or the very
+    -- first read before any manual drag) appended in `names`'s natural
+    -- order (favorites-first, then alphabetical by internal name).
+    local order = getManualOrder()
+    local pos = {}
+    for i, n in ipairs(order) do pos[n] = i end
+    local known, new_ones = {}, {}
+    for _, n in ipairs(names) do
+        if pos[n] then known[#known + 1] = n else new_ones[#new_ones + 1] = n end
+    end
+    table.sort(known, function(a, b) return pos[a] < pos[b] end)
+    local ordered = {}
+    for _, n in ipairs(known)    do ordered[#ordered + 1] = n end
+    for _, n in ipairs(new_ones) do ordered[#ordered + 1] = n end
+    return ordered
+end
+
 -- getVisibleCollections() — every existing collection minus the excluded
 -- ones, ordered according to the current sort mode. This is what the grid
--- (getFileList), the Arrange screen, and the classic checklist all read.
+-- (getFileList) and the classic checklist read.
 local function getVisibleCollections()
     local all = listAllCollectionNames()
     local excluded_set = {}
@@ -548,33 +581,15 @@ local function getVisibleCollections()
     for _, n in ipairs(all) do
         if not excluded_set[n] then visible[#visible + 1] = n end
     end
+    return _orderCollections(visible)
+end
 
-    local mode = getSortMode()
-    if mode == "alpha_asc" or mode == "alpha_desc" then
-        table.sort(visible, function(a, b)
-            local da, db = displayNameFor(a):lower(), displayNameFor(b):lower()
-            if mode == "alpha_desc" then return da > db end
-            return da < db
-        end)
-        return visible
-    end
-
-    -- "manual": known items in their persisted arrangement order; anything
-    -- not yet in that order (freshly created collections, or the very
-    -- first read before any manual drag) appended in `visible`'s natural
-    -- order (favorites-first, then alphabetical by internal name).
-    local order = getManualOrder()
-    local pos = {}
-    for i, n in ipairs(order) do pos[n] = i end
-    local known, new_ones = {}, {}
-    for _, n in ipairs(visible) do
-        if pos[n] then known[#known + 1] = n else new_ones[#new_ones + 1] = n end
-    end
-    table.sort(known, function(a, b) return pos[a] < pos[b] end)
-    local ordered = {}
-    for _, n in ipairs(known)    do ordered[#ordered + 1] = n end
-    for _, n in ipairs(new_ones) do ordered[#ordered + 1] = n end
-    return ordered
+-- getAllCollectionsOrdered() — every existing collection, hidden ones
+-- included, in the same order getVisibleCollections would use if nothing
+-- were excluded. Used by the SUI Arrange screen, which shows hidden
+-- collections dimmed in place rather than dropping them from the list.
+local function getAllCollectionsOrdered()
+    return _orderCollections(listAllCollectionNames())
 end
 
 local function getCollectionFilesFromRC(rc, coll_name)
@@ -639,7 +654,7 @@ end
 local function wrapAccentAndBadge(content, count, d, accent_color)
     local accent = FrameContainer:new{
         bordersize = 0, padding = 0,
-        background = accent_color or Blitbuffer.COLOR_BLACK,
+        background = accent_color or SUIStyle.COLOR.text_primary,
         dimen      = Geom:new{ w = d.coll_w, h = d.accent_h },
         VerticalSpan:new{ width = 0 },
     }
@@ -662,8 +677,8 @@ local function wrapAccentAndBadge(content, count, d, accent_color)
     end
 
     local dark      = getBadgeColor() == "dark"
-    local bg_color  = dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local fg_color  = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local bg_color  = dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local fg_color  = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
 
     local badge_tw = UI.makeColoredText{
         text    = tostring(math.min(count, 99)),
@@ -719,7 +734,7 @@ local function buildSpineDecoration(d)
     local function edgeLine(h, y_off)
         local line = LineWidget:new{
             dimen      = Geom:new{ w = d.edge_thick, h = h },
-            background = EDGE_COLOR,
+            background = SUIStyle.COLOR.gray,
         }
         line.overlap_offset = { 0, y_off }
         return OverlapGroup:new{
@@ -751,7 +766,7 @@ local function buildStackCell(files, cover_override, coll_name, count, d, accent
         local raw = getStackBookCover(front_fp, d.coll_w, d.coll_h)
         if raw then
             cover = FrameContainer:new{
-                bordersize = SUIStyle.BADGE_BORDER_SZ, color = _CLR_COVER_BORDER,
+                bordersize = SUIStyle.BADGE_BORDER_SZ, color = SUIStyle.COLOR.text_primary,
                 padding    = 0, margin = 0,
                 dimen      = Geom:new{ w = d.coll_w, h = d.coll_h },
                 raw,
@@ -760,8 +775,8 @@ local function buildStackCell(files, cover_override, coll_name, count, d, accent
     end
     if not cover then
         cover = FrameContainer:new{
-            bordersize = SUIStyle.BADGE_BORDER_SZ, color = _CLR_COVER_BORDER,
-            background = _CLR_COVER_BG, padding = 0,
+            bordersize = SUIStyle.BADGE_BORDER_SZ, color = SUIStyle.COLOR.text_primary,
+            background = SUIStyle.COLOR.gray_strong, padding = 0,
             dimen      = Geom:new{ w = d.coll_w, h = d.coll_h },
             CenterContainer:new{
                 dimen = Geom:new{ w = d.coll_w, h = d.coll_h },
@@ -998,12 +1013,8 @@ local function buildCollectionCell(coll_name, cw, cell_h, ctx)
     local style = _resolveCoverStyleForCount(getCoverStyle(), count)
     local d     = getDims(scale, thumb_scale, lbl_scale, cw, getHideSpine(), getBadgeScale())
 
-    local ok_ss, SUIStyleR = pcall(require, "features/sui_style")
-    local _theme_secondary = ok_ss and SUIStyleR and SUIStyleR.getThemeColor("text_secondary")
-    local _theme_fg        = ok_ss and SUIStyleR and SUIStyleR.getThemeColor("fg")
-    local _theme_accent    = ok_ss and SUIStyleR and SUIStyleR.getThemeColor("accent")
-    local CLR_TEXT_SUB_EFF = _theme_secondary or _theme_fg or CLR_TEXT_SUB
-    local CLR_ACCENT_EFF   = _theme_accent or Blitbuffer.COLOR_BLACK
+    local CLR_TEXT_SUB_EFF = CLR_TEXT_SUB
+    local CLR_ACCENT_EFF   = SUIStyle.COLOR.text_primary
 
     local cover_widget, cover_slots
     if style == "quad" then
@@ -1164,7 +1175,7 @@ local function collectionsUpdateCovers(widget, _ctx)
                     slot.container[slot.idx] = img
                 else
                     slot.container[slot.idx] = FrameContainer:new{
-                        bordersize = SUIStyle.BADGE_BORDER_SZ, color = _CLR_COVER_BORDER,
+                        bordersize = SUIStyle.BADGE_BORDER_SZ, color = SUIStyle.COLOR.text_primary,
                         padding    = 0, margin = 0,
                         dimen      = Geom:new{ w = slot.w, h = slot.h },
                         img,
@@ -1180,7 +1191,8 @@ end
 
 -- ---------------------------------------------------------------------------
 -- extra_menu_items_before — the "Collections" row (selection + arrangement, no
--- item limit) and, in SUI mode, the picker/arrange screen.
+-- item limit) and, in SUI mode, the Arrange screen it opens, which lists
+-- every collection (hidden ones dimmed, with a show/hide eye toggle).
 -- ---------------------------------------------------------------------------
 local function extraMenuItemsBefore(ctx_menu)
     local _UIManager  = ctx_menu.UIManager
@@ -1188,8 +1200,6 @@ local function extraMenuItemsBefore(ctx_menu)
     local SortWidget  = ctx_menu.SortWidget
     local refresh     = ctx_menu.refresh
     local _lc         = ctx_menu._
-
-    local all_colls = listAllCollectionNames()
 
     local items = {}
     items[#items + 1] = {
@@ -1234,63 +1244,56 @@ local function extraMenuItemsBefore(ctx_menu)
                 item_count   = function() return #getVisibleCollections() end,
                 show_chevron = true,
                 on_tap       = function()
-                    local cur_sel = getVisibleCollections()
+                    -- Every collection is listed here, hidden ones included.
+                    -- A hidden row stays in place, dimmed, with a "show" eye
+                    -- icon; a visible row shows the "hide" eye icon. Tapping
+                    -- the icon toggles excluded/included without touching
+                    -- the row's position. Drag-arranging still reorders
+                    -- everyone, hidden or not — keeping a hidden collection
+                    -- in the persisted order is harmless, since
+                    -- getVisibleCollections filters it out regardless of
+                    -- its position (see the model note above hideCollection).
+                    local excluded_set = {}
+                    for _, n in ipairs(getExcludedCollections()) do excluded_set[n] = true end
+
                     local sort_items = {}
-                    for _, n in ipairs(cur_sel) do
-                        sort_items[#sort_items + 1] = { text = displayNameFor(n), orig_item = n }
+                    for _, n in ipairs(getAllCollectionsOrdered()) do
+                        local _n   = n
+                        local item = {
+                            text        = displayNameFor(_n),
+                            orig_item   = _n,
+                            dim_row     = excluded_set[_n] or nil,
+                            -- The eye glyph reflects current state, not the
+                            -- tap action: open eye ("show") while visible,
+                            -- eye-off ("hide") once excluded.
+                            toggle_icon = excluded_set[_n] and "hide" or "show",
+                        }
+                        item.on_toggle = function()
+                            if excluded_set[_n] then
+                                unhideCollection(_n)
+                                excluded_set[_n] = nil
+                            else
+                                hideCollection(_n)
+                                excluded_set[_n] = true
+                            end
+                            item.dim_row     = excluded_set[_n] or nil
+                            item.toggle_icon = excluded_set[_n] and "hide" or "show"
+                            refresh()
+                            ctx.repaint()
+                        end
+                        sort_items[#sort_items + 1] = item
                     end
 
                     ctx.push("arrange", {
-                        title = _lc("Collections"),
-                        items = sort_items,
-                        empty_text = _lc("No items selected."),
-                        item_count = function() return #getVisibleCollections() end,
-                        delete_icon = "hide",
-                        -- Under the opt-out model, deleting an item here
-                        -- means hiding that collection — it still exists
-                        -- and would otherwise keep showing up (a new
-                        -- collection auto-appears, so "just drop it from
-                        -- the order" isn't enough; it has to be recorded
-                        -- as excluded). SUIWindow.buildArrange
-                        -- (engines/sui_window.lua) removes the item from
-                        -- `items` and calls on_change with what's left —
-                        -- that persists the (now shorter) manual order —
-                        -- but the actual hiding has to happen here.
-                        on_delete = function(item)
-                            hideCollection(item.orig_item)
-                            refresh()
-                        end,
-                        on_change = function(items_to_save)
+                        title      = _lc("Collections"),
+                        items      = sort_items,
+                        empty_text = _lc("No collections found."),
+                        on_change  = function(items_to_save)
                             local new_order = {}
                             for _, it in ipairs(items_to_save) do new_order[#new_order + 1] = it.orig_item end
                             saveManualOrder(new_order)
                             refresh()
                         end,
-                        footer_text = _lc("Show Hidden Collection"),
-                        footer_action = function(ctx2)
-                            local cur_names = {}
-                            for _, it in ipairs(sort_items) do cur_names[it.orig_item] = true end
-                            local picker_items = {}
-                            for _, _n in ipairs(all_colls) do
-                                if not cur_names[_n] then
-                                    local _display_n = displayNameFor(_n)
-                                    picker_items[#picker_items + 1] = {
-                                        text   = _display_n,
-                                        on_tap = function(picker_ctx)
-                                            unhideCollection(_n)
-                                            table.insert(sort_items, { text = _display_n, orig_item = _n })
-                                            refresh()
-                                            picker_ctx.pop()
-                                            ctx2.repaint()
-                                        end,
-                                    }
-                                end
-                            end
-                            ctx2.push("item_picker", {
-                                title = _lc("Show Hidden Collection"),
-                                items = picker_items,
-                            })
-                        end
                     })
                 end
             }
@@ -1544,7 +1547,6 @@ function mod.build(w, ctx)
         UI.makeColoredText{
             text    = ph_text,
             face    = Font:getFace(SUIStyle.FACE_REGULAR, SUIStyle.FS_BODY),
-            fgcolor = SUIStyle.getThemeColor("text_secondary"),
             width   = w - PAD * 2,
         },
     }

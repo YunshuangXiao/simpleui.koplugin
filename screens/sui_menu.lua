@@ -2257,6 +2257,23 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                 sub_item_table_func = function()
                     local SUIWallpaper = require("features/sui_wallpaper")
                     local items = {}
+                    items[#items + 1] = {
+                        text = _("Browse…"),
+                        keep_menu_open = true,
+                        callback = function()
+                            local AssetBrowser = require("engines/sui_asset_browser")
+                            UIManager:show(AssetBrowser:new{
+                                path       = SUIWallpaper.styleGetWallpapersDir(),
+                                extensions = SUIWallpaper.SUPPORTED_WALLPAPER_EXTS,
+                                title      = _("Choose wallpaper"),
+                                onConfirm  = function(path)
+                                    SUIWallpaper.styleSetWallpaper(path)
+                                    _applyFullLayoutRefresh()
+                                end,
+                            })
+                        end,
+                        separator = true,
+                    }
                     local wps = SUIWallpaper.styleScanWallpapers()
                     for _, wp in ipairs(wps) do
                         local _wp = wp
@@ -3763,11 +3780,48 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                             local items = {}
 
                             -- ── Install zip ───────────────────────────────────────
+                            local function _installPackAndNotify(zip_path)
+                                local pack_name, err = IP.installZip(zip_path)
+                                if pack_name then
+                                    UIManager:show(InfoMessage():new{
+                                        text    = string.format(
+                                            _("Pack \"%s\" installed.\nYou can now apply it from the list."),
+                                            pack_name),
+                                        timeout = 4,
+                                    })
+                                else
+                                    UIManager:show(InfoMessage():new{
+                                        text    = _("Error installing pack:") .. "\n" .. tostring(err),
+                                        timeout = 5,
+                                    })
+                                end
+                            end
+
                             items[#items + 1] = {
                                 text = _("Install pack from ZIP"),
                                 sub_item_table_func = function()
                                     local sub = {}
                                     local dir = IP.getPacksDir()
+                                    if dir then
+                                        sub[#sub + 1] = {
+                                            text = _("Browse…"),
+                                            keep_menu_open = true,
+                                            callback = function()
+                                                local AssetBrowser = require("engines/sui_asset_browser")
+                                                UIManager:show(AssetBrowser:new{
+                                                    path            = dir,
+                                                    -- No image format applies to a .zip archive, so there is
+                                                    -- nothing to preview — skip the thumbnail column entirely.
+                                                    extensions      = { zip = true },
+                                                    show_thumbnails = false,
+                                                    title           = _("Choose icon pack"),
+                                                    onConfirm       = function(path) _installPackAndNotify(path) end,
+                                                })
+                                            end,
+                                            separator = true,
+                                        }
+                                    end
+
                                     local lfs = require("libs/libkoreader-lfs")
                                     local T   = require("ffi/util").template
                                     local zips = {}
@@ -3790,22 +3844,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                             local _z = z
                                             sub[#sub + 1] = {
                                                 text     = _z.name,
-                                                callback = function()
-                                                    local pack_name, err = IP.installZip(_z.path)
-                                                    if pack_name then
-                                                        UIManager:show(InfoMessage():new{
-                                                            text    = string.format(
-                                                                _("Pack \"%s\" installed.\nYou can now apply it from the list."),
-                                                                pack_name),
-                                                            timeout = 4,
-                                                        })
-                                                    else
-                                                        UIManager:show(InfoMessage():new{
-                                                            text    = _("Error installing pack:") .. "\n" .. tostring(err),
-                                                            timeout = 5,
-                                                        })
-                                                    end
-                                                end,
+                                                callback = function() _installPackAndNotify(_z.path) end,
                                             }
                                         end
                                     end
@@ -4384,32 +4423,6 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                     },
                 },
             },
-            -- ── Theme Colors [DISABLED — not ready for release] ───────
-            --[[
-            -- ── Theme Colors ──────────────────────────────────────────────
-            {
-                text_func = function()
-                    -- Show the edit pencil if any theme color role is set.
-                    local has = SUISettings:get("simpleui_style_theme_bg")
-                             or SUISettings:get("simpleui_style_theme_fg")
-                             or SUISettings:get("simpleui_style_theme_bottombar_bg")
-                             or SUISettings:get("simpleui_style_theme_bottombar_fg")
-                             or SUISettings:get("simpleui_style_theme_statusbar_bg")
-                             or SUISettings:get("simpleui_style_theme_statusbar_fg")
-                             or SUISettings:get("simpleui_style_theme_text_secondary")
-                             or SUISettings:get("simpleui_style_theme_separator")
-                             or SUISettings:get("simpleui_style_theme_accent")
-                    return _("Theme Colors") .. (has and "  \u{270E}" or "")
-                end,
-                sub_item_table_func = function()
-                    local ok_ss, SUIStyle = pcall(require, "features/sui_style")
-                    if not ok_ss or not SUIStyle then return {} end
-                    local ok_fi, items = pcall(SUIStyle.makeThemeMenuItems)
-                    if not ok_fi or type(items) ~= "table" then return {} end
-                    return items
-                end,
-            },
-            -- END DISABLED: Theme Colors ]]
         }
     end
 

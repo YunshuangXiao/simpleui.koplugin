@@ -413,7 +413,6 @@ local function makeInstance(inst_id)
             UI.makeColoredText{
                 text    = ph_text,
                 face    = Font:getFace(SUIStyle.FACE_REGULAR, SUIStyle.FS_BODY),
-                fgcolor = SUIStyle.getThemeColor("text_secondary"),
                 width   = w - PAD * 2,
             },
         }

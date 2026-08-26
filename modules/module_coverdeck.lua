@@ -77,82 +77,52 @@ end
 -- ---------------------------------------------------------------------------
 -- Author list rendering
 -- ---------------------------------------------------------------------------
--- Author strings arrive as a single comma-separated string ("A, B, C").
--- Rendering rules, in priority order:
--- 1. keep at most 5 authors, joined with ", ";
--- 2. if the full list doesn't fit max_chars, drop names from the tail one
---    at a time and append " et al." to whatever remains, as long as that
---    combined string still fits;
--- 3. if even "Name1 et al." doesn't fit, fall back to truncating Name1 alone.
-local _ET_AL = _(" et al.")
-
-local function _utf8len(s)
-    if not s then return 0 end
-    local count, i = 0, 1
-    while i <= #s do
-        local b = s:byte(i)
-        local len
-        if     b >= 240 then len = 4
-        elseif b >= 224 then len = 3
-        elseif b >= 192 then len = 2
-        else                     len = 1
-        end
-        count = count + 1
-        i = i + len
-    end
-    return count
-end
-
+-- Author strings arrive as a single newline-separated string ("A\nB\nC").
+-- Aligned with KOReader's actual data format. 
+-- _splitAuthors breaks it into names (trimmed, empty tokens dropped). 
+-- _formatAuthors renders the result with these rules:
+-- 1. empty/whitespace input → "Unknown Author";
+-- 2. single author          → returned verbatim;
+-- 3. two or more author     → "Name1 et al."
+--    only the first name is kept, every other co-author is discarded.
 local function _splitAuthors(s)
-    local out = {}
-    if not s then return out end
-    for token in s:gmatch("([^,]+)") do
-        local trimmed = token:gsub("^%s+", ""):gsub("%s+$", "")
-        if trimmed ~= "" then
-            out[#out + 1] = trimmed
+    local parts = {}
+    if not s or s == "" then return parts end
+    for piece in (s .. "\n"):gmatch("(.-)\r?\n") do
+        local trimmed = piece:match("^%s*(.-)%s*$")
+        if trimmed and trimmed ~= "" then
+            parts[#parts + 1] = trimmed
         end
     end
-    return out
+    return parts
 end
 
-local function _renderAuthors(authors_str, max_chars)
-    if not authors_str or authors_str == "" then return "" end
-    local list = _splitAuthors(authors_str)
-    local n = #list
-
-    if n == 0 then return _("Unknown Author") end
-    if n == 1 then
-        return truncateTitle(list[1], max_chars)
-    end
-    if n > 5 then
-        list = { list[1], list[2], list[3], list[4], list[5] }
-        n = 5
-    end
-
-    -- Try the full list first, then progressively drop names from the
-    -- tail. Each candidate is checked with its " et al." suffix already
-    -- attached, so the suffix's own length is always accounted for.
-    for keep = n, 1, -1 do
-        local head      = table.concat(list, ", ", 1, keep)
-        local candidate = (keep < n) and (head .. _ET_AL) or head
-        if _utf8len(candidate) <= max_chars then
-            return candidate
-        end
-    end
-
-    -- Not even "Name1 et al." fits: fall back to truncating the first
-    -- author's name on its own.
-    return truncateTitle(list[1], max_chars)
+local function _formatAuthors(authors_str)
+    local parts = _splitAuthors(authors_str)
+    if #parts == 0 then return _("Unknown Author") end
+    if #parts == 1 then return parts[1] end
+    return parts[1] .. _(" et al.")
 end
 
 -- ---------------------------------------------------------------------------
 -- Settings keys
 -- ---------------------------------------------------------------------------
 
-local SETTING_SOURCE        = "coverdeck_source"         -- pfx .. this; "recent"|"tbr"
+local SETTING_SOURCE        = "coverdeck_source"          -- pfx .. this; "recent"|"tbr"
 local SETTING_SHOW_FINISHED = "coverdeck_show_finished"   -- pfx .. this; default OFF
 local ELEM_ORDER_KEY        = "coverdeck_stats_order"     -- pfx .. this
 local MAIN_ORDER_KEY        = "coverdeck_main_order"      -- pfx .. this
+
+-- Progress badge (pentagon overlay on the centre cover, same drawing
+-- primitive as the book-grid modules' progress badge) — off by default,
+-- unlike the coverdeck_show_* elements above. Color follows the same
+-- "Follow Library / Dark / Light" 3-way choice as the book-grid modules'
+-- own per-badge color override (see engines/sui_book_grid.lua's
+-- GridRenderer.getBadgeColorOverride) — nil means "Follow Library". Named
+-- "Progress Badge" throughout, matching the book-grid/Library terminology
+-- for the same badge_key ("progress").
+local SETTING_SHOW_PROGRESS_BADGE  = "coverdeck_show_progress_badge"   -- pfx .. this; default OFF
+local SETTING_PROGRESS_BADGE_COLOR = "coverdeck_progress_badge_color"  -- pfx .. this; nil|"dark"|"light"
 
 -- Source values of the form COLLECTION_PREFIX .. collection_name select a
 -- user collection as the book source.
@@ -188,6 +158,26 @@ end
 
 local function showFinished(pfx)
     return SUISettings:readSetting(pfx .. SETTING_SHOW_FINISHED) == true
+end
+
+-- Same "unset == off" convention as showFinished above — the progress
+-- badge is opt-in, unlike the coverdeck_show_* elements below (which
+-- default on).
+local function showProgressBadge(pfx)
+    return SUISettings:readSetting(pfx .. SETTING_SHOW_PROGRESS_BADGE) == true
+end
+
+-- nil ("Follow Library") / "dark" / "light" — mirrors
+-- GridRenderer.getBadgeColorOverride/setBadgeColor's shape, scoped by pfx
+-- only since coverdeck is a single-instance module (no per-instance id).
+local function getProgressBadgeColorOverride(pfx)
+    local v = SUISettings:readSetting(pfx .. SETTING_PROGRESS_BADGE_COLOR)
+    if v == "dark" or v == "light" then return v end
+    return nil
+end
+local function setProgressBadgeColor(pfx, v)
+    if v ~= "dark" and v ~= "light" then v = nil end -- nil = clear override, follow Library
+    SUISettings:saveSetting(pfx .. SETTING_PROGRESS_BADGE_COLOR, v)
 end
 
 -- Every coverdeck_show_* key defaults to ON (an unset key reads as true),
@@ -305,6 +295,68 @@ local function getSH()
 end
 
 -- ---------------------------------------------------------------------------
+-- Progress badge (pentagon) — same drawing primitive as the book-grid
+-- modules' progress badge (see engines/sui_book_grid.lua's
+-- GridRenderer.applyBadges), so a book's read/complete/abandoned status
+-- looks identical everywhere in the app. Coverdeck is a single-instance
+-- module (no per-instance id like the grid modules use), so there is no
+-- per-instance size override here — only color, via
+-- getProgressBadgeColorOverride/setProgressBadgeColor above.
+-- ---------------------------------------------------------------------------
+local _CoverWidgets = nil
+local function getCoverWidgets()
+    if not _CoverWidgets then
+        local ok, m = pcall(require, "features/library/sui_cover_widgets")
+        if ok and m then _CoverWidgets = m end
+    end
+    return _CoverWidgets
+end
+
+local _FC = nil
+local function getFC()
+    if not _FC then
+        local ok, m = pcall(require, "features/library/sui_foldercovers")
+        if ok and m then _FC = m end
+    end
+    return _FC
+end
+
+-- Overlays the progress pentagon on `cover_widget` when the book has a
+-- status worth showing (in progress, complete, or abandoned). Returns
+-- `cover_widget` unchanged otherwise — same "not started" convention as
+-- GridRenderer.applyBadges.
+local function applyProgressBadge(cover_widget, bd, cw, ch, pfx)
+    local has_progress = (bd.percent or 0) > 0 or bd.status == "complete" or bd.status == "abandoned"
+    if not has_progress then return cover_widget end
+
+    local CW = getCoverWidgets()
+    if not CW then return cover_widget end
+
+    local fc    = getFC()
+    local color = getProgressBadgeColorOverride(pfx)
+        or (fc and fc.getBadgeColorProgress and fc.getBadgeColorProgress())
+        or "dark"
+    local dark = color == "dark"
+
+    local cell_min    = math.min(cw, ch)
+    local edge_margin = math.max(1, math.floor(cell_min * 0.08))
+    local eff_size    = math.max(8, math.floor(cell_min * 0.14))
+
+    local desc = CW.buildProgressBadgeDesc(eff_size, bd.status, bd.percent, SUIStyle.BADGE_BORDER_SZ, dark)
+    local wg   = CW.buildProgressBadgeWidget(desc)
+    if not wg then return cover_widget end
+
+    -- Flush with the top edge, inset from the right — matches the corner
+    -- badges' placement convention in applyBadges.
+    local sz = wg:getSize()
+    wg.overlap_offset = { cw - sz.w - edge_margin, 0 }
+
+    local overlap = OverlapGroup:new{ dimen = Geom:new{ w = cw, h = ch }, cover_widget }
+    overlap[#overlap + 1] = wg
+    return overlap
+end
+
+-- ---------------------------------------------------------------------------
 -- Stats cache — LRU capped at BSTATS_CACHE_MAX entries: { result, t }.
 -- Eviction scans the small table for the oldest entry. Keeps RAM bounded
 -- even when the user browses a large TBR list across a long session.
@@ -368,7 +420,7 @@ local function fetchBookStats(md5, shared_conn, ctx, force)
     local ok, err = pcall(function()
         local row = conn:exec(string.format([[
             WITH b AS (
-                SELECT id FROM book WHERE md5 = '%s' LIMIT 1
+                %s
             ),
             ps_agg AS (
                 SELECT ps.page,
@@ -384,7 +436,7 @@ local function fetchBookStats(md5, shared_conn, ctx, force)
                 count(*),
                 sum(min(page_dur, %d))
             FROM ps_agg;
-        ]], md5, MAX_SEC_PER_PAGE))
+        ]], string.format(Config.BOOK_ID_BY_MD5_SQL, md5), MAX_SEC_PER_PAGE))
 
         if row and row[1] and row[1][1] then
             local days   = tonumber(row[1][1]) or 0
@@ -615,11 +667,8 @@ function M.build(w, ctx)
     local SH = getSH()
     if not SH then return nil end
 
-    -- Theme colors
-    local _theme_fg        = SUIStyle.getThemeColor("fg")
-    local _theme_secondary = SUIStyle.getThemeColor("text_secondary")
-    local CLR_TEXT_EFF     = _theme_fg or Blitbuffer.COLOR_BLACK
-    local CLR_TEXT_SUB_EFF = _theme_secondary or _theme_fg or CLR_TEXT_SUB
+    local CLR_TEXT_EFF     = SUIStyle.COLOR.text_primary
+    local CLR_TEXT_SUB_EFF = CLR_TEXT_SUB
 
     -- Scales: c.scale/c.thumb_scale/c.lbl_scale (from ctx.cfg) are raw
     -- values; ctx.landscape_factor is applied on top here.
@@ -646,6 +695,7 @@ function M.build(w, ctx)
     local show_progress   = vis.progress
     local show_stats      = vis.show_stats
     local stats_order     = vis.stats_order
+    local show_progress_badge = showProgressBadge(pfx)
 
     -- Carousel dimensions: center_w is a percentage of inner_w (see
     -- _CENTER_W_PCT above), scaled by cs (raw scale * thumb_scale) on top.
@@ -681,6 +731,12 @@ function M.build(w, ctx)
     local function buildCover(fp, cw, ch)
         local bd    = SH.getBookData(fp, ctx.prefetched and ctx.prefetched[fp])
         local cover = SH.getBookCover(fp, cw, ch) or SH.coverPlaceholder(bd.title, bd.authors, cw, ch)
+        -- Only the centre cover is large enough for the badge to read
+        -- cleanly — side/far slots are narrow crops meant to look like a
+        -- sliver of book spine, not a full cover.
+        if show_progress_badge then
+            cover = applyProgressBadge(cover, bd, cw, ch, pfx)
+        end
         return cover
     end
     local function buildCroppedCover(fp, cw, ch, align)
@@ -848,7 +904,7 @@ function M.build(w, ctx)
         local author_fs   = math.floor(SUIStyle.FS_SUBTITLE * scale * lbl_scale)
         local face_author = Font:getFace(SUIStyle.FACE_REGULAR, math.max(8, author_fs))
         author_widget = UI.makeColoredText{
-            text            = _renderAuthors(bd.authors, 20),
+            text            = _formatAuthors(bd.authors),
             face            = face_author,
             fgcolor         = CLR_TEXT_SUB_EFF,
             width           = inner_w,
@@ -1509,6 +1565,43 @@ function M.getMenuItems(ctx_menu)
         refresh = refresh,
         _lc     = _lc,
     }
+    do
+        -- Same grouping convention as the book-grid modules' per-badge
+        -- submenus (see engines/sui_book_grid.lua's "Pages Badge" /
+        -- "Series Badge" groups): a named row showing On/Off, containing
+        -- the toggle plus a color override independent from every other
+        -- module's badges.
+        local progress_badge_group = {
+            {
+                text           = _lc("Progress Badge"),
+                checked_func   = function() return showProgressBadge(pfx) end,
+                keep_menu_open = true,
+                callback       = function()
+                    SUISettings:saveSetting(pfx .. SETTING_SHOW_PROGRESS_BADGE, not showProgressBadge(pfx))
+                    refresh()
+                end,
+            },
+            Config.makeRadioSubmenuItem{
+                text         = _lc("Progress Badge Color"),
+                enabled_func = function() return showProgressBadge(pfx) end,
+                options      = {
+                    { value = nil,     label = _lc("Follow Library") },
+                    { value = "dark",  label = _lc("Dark") },
+                    { value = "light", label = _lc("Light") },
+                },
+                get          = function() return getProgressBadgeColorOverride(pfx) end,
+                set          = function(v) setProgressBadgeColor(pfx, v) end,
+                refresh      = refresh,
+            },
+        }
+        menu[#menu+1] = {
+            text_func  = function() return _lc("Progress Badge") end,
+            value_func = function()
+                return showProgressBadge(pfx) and _lc("On") or _lc("Off")
+            end,
+            sub_item_table = progress_badge_group,
+        }
+    end
     menu[#menu+1] = {
         text           = _lc("Show finished books"),
         checked_func   = function() return showFinished(pfx) end,

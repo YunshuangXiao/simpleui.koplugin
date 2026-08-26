@@ -10,14 +10,6 @@ local Device          = require("device")
 local Font            = require("ui/font")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local Geom            = require("ui/geometry")
-local GestureRange    = require("ui/gesturerange")
-local HorizontalGroup = require("ui/widget/horizontalgroup")
-local HorizontalSpan  = require("ui/widget/horizontalspan")
-local ImageWidget     = require("ui/widget/imagewidget")
-local InputContainer  = require("ui/widget/container/inputcontainer")
-local LeftContainer   = require("ui/widget/container/leftcontainer")
-local RightContainer  = require("ui/widget/container/rightcontainer")
-local TextWidget      = require("ui/widget/textwidget")
 local VerticalGroup   = require("ui/widget/verticalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
@@ -26,6 +18,7 @@ local _  = require("infra/sui_i18n").translate
 local N_ = require("infra/sui_i18n").ngettext
 local Config = require("infra/sui_config")
 local QA          = require("features/sui_quickactions")
+local QARenderer  = require("engines/sui_quickactions_render")
 local UI          = require("infra/sui_core")
 local SUISettings = require("infra/sui_store")
 local SUIStyle    = require("features/sui_style")
@@ -83,21 +76,15 @@ local function isIconHidden(pfx, suffix)
 end
 
 -- ---------------------------------------------------------------------------
--- Action validity (mirrors module_quick_actions)
+-- Action validity — QA.filterValidIds is the single source of truth,
+-- shared with module_quick_actions and QA.showQAFolderDialog.
 -- ---------------------------------------------------------------------------
-local function getEntry(action_id)
-    return QA.getEntry(action_id)
-end
-
-local function getCustomQAValid()
-    return QA.getCustomQAValid()
-end
 
 -- ---------------------------------------------------------------------------
 -- Core widget builder
 -- ---------------------------------------------------------------------------
 local function buildListWidget(w, action_ids, show_icons, align, on_tap_fn, d, colors)
-    local clr_blk = colors and colors.blk or Blitbuffer.COLOR_BLACK
+    local clr_blk = colors and colors.blk or SUIStyle.COLOR.text_primary
     local clr_sub = colors and colors.sub or CLR_TEXT_SUB
 
     -- Placeholder: no actions configured at all
@@ -118,15 +105,7 @@ local function buildListWidget(w, action_ids, show_icons, align, on_tap_fn, d, c
     end
 
     -- Filter valid IDs
-    local valid_ids = {}
-    local cqa_valid = getCustomQAValid()
-    for _, aid in ipairs(action_ids) do
-        if aid:match("^custom_qa_%d+$") then
-            if cqa_valid[aid] then valid_ids[#valid_ids + 1] = aid end
-        elseif QA.isBuiltin(aid) then
-            valid_ids[#valid_ids + 1] = aid
-        end
-    end
+    local valid_ids = QA.filterValidIds(action_ids)
     -- Placeholder: actions were saved but none are valid anymore
     if #valid_ids == 0 then
         local ph_fs   = math.max(8, math.floor(_BASE_PH_FS * (d.row_h / _BASE_ROW_H)))
@@ -147,125 +126,32 @@ local function buildListWidget(w, action_ids, show_icons, align, on_tap_fn, d, c
     local inner_w = w - PAD * 2
     local n       = #valid_ids
 
-    -- Width available for text (when icon is shown: subtract icon + gap)
-    local text_w = show_icons and (inner_w - d.icon_sz - d.icon_gap) or inner_w
-
     local vg = VerticalGroup:new{ align = "center" }
 
+    -- icon_opts covers this row layout's one remaining structural
+    -- difference from the other QA consumers: the icon sits beside a label
+    -- rather than above it, so it's centered in a taller container (row
+    -- height, not icon size) to give it a full-row-height hitbox.
+    local icon_opts = {
+        container_h             = d.row_h,
+        wrap_image_in_container  = true,
+    }
+
     for i = 1, n do
-        local aid   = valid_ids[i]
-        local entry = getEntry(aid)
-
-        -- ── Icon ──────────────────────────────────────────────────────────
-        local icon_widget
-        if show_icons then
-            local nerd_char = Config.nerdIconChar(entry.icon)
-            if nerd_char then
-                icon_widget = CenterContainer:new{
-                    dimen = Geom:new{ w = d.icon_sz, h = d.row_h },
-                    UI.makeColoredText{
-                        text    = nerd_char,
-                        face    = Font:getFace(SUIStyle.FACE_ICONS, math.floor(d.icon_sz * 0.85)),
-                        fgcolor = clr_blk,
-                        padding = 0,
-                    },
-                }
-            else
-                local iw = ImageWidget:new{
-                        file    = entry.icon,
-                        width   = d.icon_sz,
-                        height  = d.icon_sz,
-                        is_icon = true,
-                        alpha   = true,
-                }
-                if pcall(function() iw:_render() end) then
-                    icon_widget = CenterContainer:new{
-                        dimen = Geom:new{ w = d.icon_sz, h = d.row_h },
-                        iw,
-                    }
-                else
-                    iw:free()
-                    icon_widget = CenterContainer:new{
-                        dimen = Geom:new{ w = d.icon_sz, h = d.row_h },
-                        TextWidget:new{
-                            text    = (entry.label and entry.label:sub(1,1):upper() or "?"),
-                            face    = Font:getFace("cfont", math.floor(d.icon_sz * 0.55)),
-                            fgcolor = clr_blk,
-                        },
-                    }
-                end
-            end
-        end
-
-        -- ── Label ─────────────────────────────────────────────────────────
-        local label_tw = UI.makeColoredText{
-            text    = entry.label,
-            face    = Font:getFace(SUIStyle.FACE_REGULAR, d.fs),
-            fgcolor = clr_blk,
-            width   = text_w,
-            padding = 0,
-        }
-
-        -- ── Row: icon + label, aligned as requested ────────────────────────
-        -- We build the content HorizontalGroup (icon+gap+text) and then
-        -- place it inside a full-width container with the chosen alignment.
-        local content_w = show_icons
-            and (d.icon_sz + d.icon_gap + label_tw:getSize().w)
-            or  label_tw:getSize().w
-
-        local hg = HorizontalGroup:new{ align = "center" }
-        if show_icons then
-            hg[#hg + 1] = icon_widget
-            hg[#hg + 1] = HorizontalSpan:new{ width = d.icon_gap }
-        end
-        hg[#hg + 1] = CenterContainer:new{
-            dimen = Geom:new{ w = label_tw:getSize().w, h = d.row_h },
-            label_tw,
-        }
-
-        -- Cap content_w to inner_w
-        content_w = math.min(content_w, inner_w)
-
-        -- ── Tappable wrapper ───────────────────────────────────────────────
-        -- The tap zone matches the actual content width (icon + gap + text),
-        -- not the full module width. Empty space beside the content is inert.
-        -- An alignment container wraps the tappable for visual positioning.
-        local tappable = InputContainer:new{
-            dimen      = Geom:new{ w = content_w, h = d.row_h },
-            [1]        = hg,
-            _on_tap_fn = on_tap_fn,
-            _action_id = aid,
-        }
-        tappable.ges_events = {
-            TapAL = {
-                GestureRange:new{
-                    ges   = "tap",
-                    range = function() return tappable.dimen end,
-                },
-            },
-        }
-        function tappable:onTapAL()
-            if self._on_tap_fn then self._on_tap_fn(self._action_id) end
-            return true
-        end
-
-        local row_content
-        if align == "left" then
-            row_content = LeftContainer:new{
-                dimen = Geom:new{ w = inner_w, h = d.row_h },
-                tappable,
-            }
-        elseif align == "right" then
-            row_content = RightContainer:new{
-                dimen = Geom:new{ w = inner_w, h = d.row_h },
-                tappable,
-            }
-        else  -- center
-            row_content = CenterContainer:new{
-                dimen = Geom:new{ w = inner_w, h = d.row_h },
-                tappable,
-            }
-        end
+        local aid = valid_ids[i]
+        local row_content = QARenderer.buildListRow(aid, {
+            inner_w        = inner_w,
+            row_h          = d.row_h,
+            show_icon      = show_icons,
+            icon_sz        = d.icon_sz,
+            icon_gap       = d.icon_gap,
+            lbl_fs         = d.fs,
+            fgcolor        = clr_blk,
+            align          = align,
+            icon_opts      = icon_opts,
+            on_tap_fn      = on_tap_fn,
+            tap_event_name = "TapAL",
+        })
 
         if i > 1 and d.row_gap > 0 then
             vg[#vg + 1] = VerticalSpan:new{ width = d.row_gap }
@@ -351,14 +237,7 @@ function M.build(w, ctx)
     local d         = _getDims(Config.getModuleScale(MOD_ID, ctx.pfx) * lf)
     local lbl_scale = Config.getItemLabelScale(MOD_ID, ctx.pfx) * lf
     d.fs = math.max(8, math.floor(d.fs * lbl_scale))
-    local ok_ss, SUIStyle  = pcall(require, "features/sui_style")
-    local _theme_fg        = ok_ss and SUIStyle and SUIStyle.getThemeColor("fg")
-    local _theme_secondary = ok_ss and SUIStyle and SUIStyle.getThemeColor("text_secondary")
-    local colors = (_theme_fg or _theme_secondary) and {
-        blk = _theme_fg or Blitbuffer.COLOR_BLACK,
-        sub = _theme_secondary or _theme_fg or CLR_TEXT_SUB,
-    } or nil
-    return buildListWidget(w, qa_ids, show_icons, align, ctx.on_qa_tap, d, colors)
+    return buildListWidget(w, qa_ids, show_icons, align, ctx.on_qa_tap, d)
 end
 
 function M.getHeight(ctx)

@@ -285,10 +285,16 @@ function M.styleGetWallpapersDir()
     return _styleWallpapersDir()
 end
 
+-- Raster formats accepted for wallpapers. Exported (not local) so callers
+-- offering a file browser over the wallpapers directory — e.g. the
+-- "Browse…" entry in screens/sui_menu.lua's Select Wallpaper submenu — stay
+-- in sync with this list instead of duplicating it.
+M.SUPPORTED_WALLPAPER_EXTS = { jpg=true, jpeg=true, png=true, bmp=true, gif=true, webp=true }
+
 function M.styleScanWallpapers()
     local dir     = _styleWallpapersDir()
     local items   = {}
-    local exts    = { jpg=true, jpeg=true, png=true, bmp=true, gif=true, webp=true }
+    local exts    = M.SUPPORTED_WALLPAPER_EXTS
     if lfs.attributes(dir, "mode") == "directory" then
         for fname in lfs.dir(dir) do
             -- lfs.dir() always yields "." and ".." — skip them explicitly so

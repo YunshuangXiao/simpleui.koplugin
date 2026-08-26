@@ -18,9 +18,18 @@
 --   M.getTBRList()                                       → { fp, ... }
 --   M.getTBRCount()                                      → number
 --   M.isTBR(filepath)                                    → bool
---   M.addTBR(filepath)                                   → bool
+--   M.addTBR(filepath)                                   → bool, string?
+--                                                           (false, "finished"
+--                                                           when the book is
+--                                                           already marked
+--                                                           Finished — TBR
+--                                                           holds unstarted
+--                                                           books only)
 --   M.removeTBR(filepath)
 --   M.genTBRButton(file, close_cb)                       → button table
+--   M.isAutoRemoveFinishedEnabled()                      → bool (used by
+--                                                           infra/sui_patches.lua's
+--                                                           status-change hook)
 --   M.id/build/getHeight/getMenuItems/reset/...          → GridRenderer
 --                                                           module contract
 --                                                           (see the
@@ -30,7 +39,10 @@
 local lfs             = require("libs/libkoreader-lfs")
 local _ = require("infra/sui_i18n").translate
 
-local logger = require("logger")
+local logger    = require("logger")
+local UIManager = require("ui/uimanager")
+local InfoMessage = require("ui/widget/infomessage")
+local BookList  = require("ui/widget/booklist")
 
 local SUISettings = require("infra/sui_store")
 local GridRenderer = require("engines/sui_book_grid")
@@ -38,6 +50,20 @@ local GridRenderer = require("engines/sui_book_grid")
 local TBR_MAX       = 5
 local TBR_SETTING   = "simpleui_tbr_list"    -- G_reader_settings key (kept in sync)
 local TBR_COLL_NAME = "To Be Read"      -- KOReader collection name for the TBR list
+
+-- Setting key for the "auto-remove on finish" toggle (see extraMenuItemsAfter
+-- below and infra/sui_patches.lua's _onStatusChanged). Defaults to on via
+-- SUISettings:nilOrTrue, same pattern as the other module toggles in this
+-- plugin (e.g. module_quick_actions.lua's "Hide Label").
+local TBR_AUTO_REMOVE_SETTING = "simpleui_tbr_auto_remove_finished"
+
+-- Whether a book should be dropped from the TBR list once its status
+-- changes to "complete". Read from infra/sui_patches.lua's status-change
+-- hook, which covers the file manager, the reader's end-of-book flow, and
+-- the full-screen Book status widget.
+local function isAutoRemoveFinishedEnabled()
+    return SUISettings:nilOrTrue(TBR_AUTO_REMOVE_SETTING)
+end
 
 -- ---------------------------------------------------------------------------
 -- ReadCollection accessor (lazy — RC singleton may not exist at require time)
@@ -150,12 +176,24 @@ local function isTBR(filepath)
     return false
 end
 
+-- Whether a book's status is "complete" (KOReader's internal name for
+-- "Finished"). TBR is meant to hold unstarted books — see addTBR() below.
+local function isFinished(filepath)
+    return BookList.getBookStatus(filepath) == "complete"
+end
+
 --- Adds a book to the TBR list.
 --- Writes directly to RC internals (bypassing the hooked RC.addItem) to avoid
 --- re-entrancy; then syncs G_reader_settings.
---- Returns true (no cap: the row is paginated, see the makeModule call below).
+--- Refuses to add a book already marked "Finished" — TBR represents unstarted
+--- books, and letting a finished book in here would just have it immediately
+--- removed again by the auto-remove-on-finish hook (see infra/sui_patches.lua's
+--- _onStatusChanged). Returns false, "finished" in that case; otherwise
+--- returns true (no cap on the list itself: the row is paginated, see the
+--- makeModule call below).
 local function addTBR(filepath)
     if isTBR(filepath) then return true end
+    if isFinished(filepath) then return false, "finished" end
 
     local RC = getRC()
     if RC then
@@ -481,6 +519,24 @@ local function arrangeMenuItems(ctx_menu)
     }
 end
 
+-- ── extra_menu_items_after — auto-remove-on-finish toggle ──────────────────
+local function extraMenuItemsAfter(ctx_menu)
+    local _lc     = ctx_menu._
+    local refresh = ctx_menu.refresh
+
+    return {
+        {
+            text           = _lc("Remove from list when finished"),
+            checked_func   = isAutoRemoveFinishedEnabled,
+            keep_menu_open = true,
+            callback       = function()
+                SUISettings:saveSetting(TBR_AUTO_REMOVE_SETTING, not isAutoRemoveFinishedEnabled())
+                refresh()
+            end,
+        },
+    }
+end
+
 -- M is both the TBR data/API layer AND the "cover row" row module
 -- (build/getHeight/menu registration, via GridRenderer.makeModule below,
 -- merged onto M near the bottom of this file). Used to be split across
@@ -514,6 +570,10 @@ M.isTBR       = isTBR
 M.addTBR      = addTBR
 M.removeTBR   = removeTBR
 
+-- Read by infra/sui_patches.lua's _onStatusChanged() to decide whether a
+-- book that just became "complete" should be dropped from the TBR list.
+M.isAutoRemoveFinishedEnabled = isAutoRemoveFinishedEnabled
+
 -- Menu glue for the "tbr" row module's extra_menu_items_before (below) --
 -- kept as a named local/export since it's entangled with this file's
 -- private helpers (getTBRList, removeTBR, TBR_COLL_NAME, _getBookTitle, ...).
@@ -533,7 +593,20 @@ function M.genTBRButton(file, close_cb)
                   .. "  " .. indicator,
         enabled = true,
         callback = function()
-            if in_tbr then removeTBR(file) else addTBR(file) end
+            if in_tbr then
+                removeTBR(file)
+            elseif isFinished(file) then
+                -- Blocked — see addTBR()'s doc comment. Close the dialog
+                -- (nothing changed, so the caller's refresh is a no-op) and
+                -- explain why, instead of silently doing nothing.
+                if close_cb then close_cb() end
+                UIManager:show(InfoMessage:new{
+                    text = _("This book is marked as Finished, so it can't be added to To Be Read.\nChange its status to Reading or On Hold first."),
+                })
+                return
+            else
+                addTBR(file)
+            end
             if close_cb then close_cb() end
         end,
     }
@@ -558,6 +631,7 @@ local tbr_module = GridRenderer.makeModule{
     cache_key   = "_tbr_fps",   -- shared with module_coverdeck.lua
     getFileList = getTBRList,
     extra_menu_items_before = arrangeMenuItems,
+    extra_menu_items_after  = extraMenuItemsAfter,
 
     grid          = true,
     default_rows  = 1,
@@ -577,6 +651,17 @@ local tbr_module = GridRenderer.makeModule{
 
     reset = function() GridRenderer.reset() end,
 }
-for k, v in pairs(tbr_module) do M[k] = v end
+-- Merge TBR's data/API functions (getDisplayName, getTBRList, addTBR, ...,
+-- all defined above onto the local M) into tbr_module itself, and return
+-- tbr_module — not M. tbr_module is the exact table GridRenderer.makeModule
+-- built internally, and its generated build()/getMenuItems() close over
+-- that same table (e.g. Config.applyLabelToggle(mod, lbl) inside build()
+-- mutates mod.label in place). Merging the other way around (copying
+-- tbr_module's fields onto a separate M and returning M) would leave every
+-- module-registry consumer reading a table that build() never touches
+-- again after this file first loads — any state build() sets on itself at
+-- runtime (starting with the label visibility toggle) would silently never
+-- reach the registered module.
+for k, v in pairs(M) do tbr_module[k] = v end
 
-return M
+return tbr_module

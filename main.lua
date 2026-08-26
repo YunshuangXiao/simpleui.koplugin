@@ -1410,19 +1410,26 @@ end
 -- open (self.ui.tearing_down, set by filemanager.lua:onShowingReader /
 -- onSetupShowReader).
 --
--- We close every currently live screen unconditionally in both cases,
--- instead of leaving any of them alive underneath ReaderUI for the duration
--- of the reading session. This is not just the built-in Homescreen: a
--- Custom Screen the user navigated away from without explicitly closing it
--- (see ScreenEngine.liveScreenIds()'s doc comment in
--- engines/sui_screen_engine.lua) stays live-but-hidden exactly like the
--- Homescreen used to, and is just as reachable from FM/the reader opening.
--- Closing each one here frees its whole widget tree (module wrappers,
--- wallpaper cache, quote widgets, clock refresh timer, sqlite handle) as
--- soon as the reader opens, rather than retaining it in RAM until the book
--- is closed again — and it removes the class of bugs where a
--- hidden-but-alive screen still receives broadcast events (onResume,
--- onSetRotationMode, ...) meant for the reader.
+-- We close every currently live screen, EXCEPT one that is currently
+-- soft-parked (see ScreenWidget:onShowingReader / ScreenEngine.
+-- SOFT_PARK_ENABLED in engines/sui_screen_engine.lua) — closing it here
+-- would immediately undo what onShowingReader just decided to keep alive
+-- for a warm reader-return. By construction there is never more than one
+-- parked screen at a time (onShowingReader only parks when it is the sole
+-- live screen), so every other entry in this loop is guaranteed to still
+-- be a real, non-parked, hidden-alive screen that needs closing exactly as
+-- before — most commonly a Custom Screen the user navigated away from
+-- without explicitly closing it (see ScreenEngine.liveScreenIds()'s doc
+-- comment in engines/sui_screen_engine.lua). Closing each one here frees
+-- its whole widget tree (module wrappers, wallpaper cache, quote widgets,
+-- clock refresh timer, sqlite handle) as soon as the reader opens, rather
+-- than retaining it in RAM for the whole session — and it keeps the
+-- original guarantee this loop exists for: no more than one hidden-but-
+-- alive screen ever receiving broadcast events (onResume,
+-- onSetRotationMode, ...) meant for the reader. A parked screen's own
+-- event handlers are separately guarded (see ScreenWidget:onResume /
+-- onSyncBookStats) to skip their refresh work while hidden, so leaving it
+-- alive here does not reopen that class of bug.
 --
 -- _navbar_closing_intentionally makes ScreenWidget:onCloseWidget take its
 -- "preserve lightweight state" branch (that screen's own _cached_books_state
@@ -1435,18 +1442,20 @@ end
 -- ScreenWidget:onCloseWidget() (engines/sui_screen_engine.lua) already
 -- clears the flat _instance field for whichever id it belongs to as part of
 -- its own teardown, so there is no separate bookkeeping needed here beyond
--- calling UIManager:close() on each live instance.
+-- calling UIManager:close() on each live, non-parked instance.
 --
--- _raiseHSFromStack (the old warm-path stack-promotion helper in
--- sui_patches.lua) has been removed: it only ever ran on the reader-return
--- path, where every screen's _instance is now always nil by the time it
--- would fire. Former call sites go straight to a cold open instead.
+-- _raiseHSFromStack (the old, pre-2.5 warm-path stack-promotion helper in
+-- sui_patches.lua) was removed for the reason above: this loop used to
+-- close every live screen unconditionally, so every screen's _instance was
+-- always nil by the time a raise could fire. _raiseParkedScreen (infra/
+-- sui_patches.lua) is its successor, now that this loop leaves a parked
+-- screen's _instance alone for it to find.
 function SimpleUIPlugin:onCloseWidget()
     local ScreenEngine = package.loaded["engines/sui_screen_engine"]
     if not ScreenEngine then return end
     for _, id in ipairs(ScreenEngine.liveScreenIds()) do
         local inst = ScreenEngine.getInstance(id)
-        if inst then
+        if inst and not inst._parked then
             inst._navbar_closing_intentionally = true
             UIManager:close(inst)
         end
@@ -1729,6 +1738,21 @@ function SimpleUIPlugin:onResume()
             -- the same resume chain) must not override it with a keep_cache=true
             -- that reuses a potentially stale _ctx_cache.
             HS.refresh(false)
+        end
+        -- Any live Custom Screen needs the same follow-up full refresh HS
+        -- gets above. ScreenWidget:onResume (engines/sui_screen_engine.lua)
+        -- already ran for every live screen with stats_only=true, which
+        -- keeps single-value stats current but leaves anything backed by a
+        -- paginated grid module (TBR, Library grid, ...) stale — HS has
+        -- this call to cover that gap, and a Custom Screen has no other
+        -- caller asking for it, live-but-hidden underneath it or not.
+        local ScreenEngine = package.loaded["engines/sui_screen_engine"]
+        if ScreenEngine then
+            for _, id in ipairs(ScreenEngine.liveScreenIds()) do
+                if id ~= "hs" then
+                    ScreenEngine.refreshScreen(id, false)
+                end
+            end
         end
         -- Re-open the Homescreen on wakeup when \"Start with Homescreen\" is set.
         if SUISettings:nilOrTrue("simpleui_enabled") then

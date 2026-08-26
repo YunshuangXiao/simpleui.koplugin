@@ -148,7 +148,7 @@ local BUILTIN_PRESETS = {
         id = "builtin_mindful_reading",
         name = _("Mindful Reading"),
         desc = _("Clock") .. ", " .. _("Currently Reading") .. ", " .. _("Quote of the Day"),
-        layout = { pages = { { id = 1, modules = { "clock", "currently", "quote" } } } },
+        layout = { pages = { { id = 1, modules = { "clock", "quote", "currently" } } } },
         settings = {
             simpleui_hs_clock_scale = 100,
             simpleui_hide_label_clock = false,
@@ -266,6 +266,22 @@ function SUIPresets.applyBuiltin(id)
         if b.id == id then bp = b; break end
     end
     if not bp then return false end
+
+    -- Wipe every homescreen-scoped key first, so modules a built-in preset
+    -- leaves "unconfigured" (see comments above) fall back to their own
+    -- shipped defaults instead of inheriting whatever was set by a previous
+    -- preset or by manual customization. Config.applyFirstRunDefaults()
+    -- then repopulates the keys it explicitly tracks — it's idempotent, so
+    -- it only fills what was just cleared. Any module-owned key with no
+    -- entry there simply reads back as nil, and per-module getters already
+    -- fall back to their own local default in that case. bp.settings is
+    -- applied afterwards, on top, so preset-specific values still win.
+    local to_delete = {}
+    for k in SUISettings:iterateKeys() do
+        if _hsMatchesKey(k) then to_delete[#to_delete + 1] = k end
+    end
+    for _i, k in ipairs(to_delete) do SUISettings:del(k) end
+    require("infra/sui_config").applyFirstRunDefaults()
 
     SUISettings:set("simpleui_layout", bp.layout)
 

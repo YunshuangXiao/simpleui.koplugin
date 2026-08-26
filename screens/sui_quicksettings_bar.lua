@@ -28,13 +28,9 @@ local Geom       = require("ui/geometry")
 local UIManager  = require("ui/uimanager")
 local logger     = require("logger")
 
-local Blitbuffer        = require("ffi/blitbuffer")
 local CenterContainer   = require("ui/widget/container/centercontainer")
-local FrameContainer    = require("ui/widget/container/framecontainer")
 local HorizontalGroup   = require("ui/widget/horizontalgroup")
 local HorizontalSpan    = require("ui/widget/horizontalspan")
-local ImageWidget       = require("ui/widget/imagewidget")
-local LineWidget        = require("ui/widget/linewidget")
 local TextWidget        = require("ui/widget/textwidget")
 local VerticalGroup     = require("ui/widget/verticalgroup")
 local VerticalSpan      = require("ui/widget/verticalspan")
@@ -42,6 +38,7 @@ local InputContainer    = require("ui/widget/container/inputcontainer")
 local GestureRange      = require("ui/gesturerange")
 
 local SUISettings = require("infra/sui_store")
+local SUIStyle    = require("features/sui_style")
 local _           = require("infra/sui_i18n").translate
 local N_          = require("infra/sui_i18n").ngettext
 
@@ -51,6 +48,9 @@ local function _QA()
 end
 local function _Config()
     return package.loaded["infra/sui_config"] or require("infra/sui_config")
+end
+local function _QARenderer()
+    return package.loaded["engines/sui_quickactions_render"] or require("engines/sui_quickactions_render")
 end
 
 local QSBar = {}
@@ -145,98 +145,22 @@ local function buildPanel(touch_menu)
     local border_sz = ok_style and SUIStyle.BORDER_SZ or 1
 
     local function makeButton(action_id)
-        local QA    = _QA()
-        local entry = QA.getEntry(action_id)
-        local label = entry.label or action_id
-
-        local icon_widget
-        local Config = _Config()
-        local is_nerd = Config.isNerdIcon(entry.icon)
-        local ok_style, SUIStyle = pcall(require, "features/sui_style")
-        
-        if is_nerd then
-            local nerd_char = Config.nerdIconChar(entry.icon)
-            icon_widget = TextWidget:new{
-                text    = nerd_char,
-                face    = Font:getFace(ok_style and SUIStyle.FACE_ICONS or "symbols", math.floor(icon_size * 0.75)),
-                fgcolor = Blitbuffer.COLOR_BLACK,
-                padding = 0,
-            }
-        else
-            local icon_path = ok_style and SUIStyle and entry.icon
-                and SUIStyle.safeIconPath and SUIStyle.safeIconPath(entry.icon, nil)
-            if icon_path then
-                local iw = ImageWidget:new{
-                    file    = icon_path,
-                    width   = icon_size,
-                    height  = icon_size,
-                    is_icon = true,
-                    alpha   = true,
-                }
-                local ok_render = pcall(function() iw:_render() end)
-                if ok_render then
-                    icon_widget = iw
-                else
-                    iw:free()
-                end
-            end
-            if not icon_widget then
-                icon_widget = TextWidget:new{
-                    text    = (label:sub(1, 1)):upper(),
-                    face    = Font:getFace("cfont", math.floor(icon_size * 0.55)),
-                    fgcolor = Blitbuffer.COLOR_BLACK,
-                }
-            end
-        end
-
-        local shape = getShape()
-        local bg    = getBg()
-        local is_bare = (shape == "bare")
-        local corner_r = is_bare and 0 or ((shape == "round") and math.floor(btn_size / 2) or math.floor(btn_size / 4))
-        local current_border = (not is_bare and (bg == "solid" or bg == "transparent")) and border_sz or 0
-
-        local bg_color = nil
-        if not is_bare then
-            if bg == "flat" then bg_color = Blitbuffer.gray(0.08)
-            elseif bg == "solid" then bg_color = Blitbuffer.COLOR_WHITE end
-        end
-
-        local btn_frame = FrameContainer:new{
-            width      = btn_size,
-            height     = btn_size,
-            radius     = corner_r,
-            bordersize = current_border,
-            color      = current_border > 0 and Blitbuffer.gray(0.75) or nil,
-            background = bg_color,
-            padding    = 0,
-            CenterContainer:new{
-                dimen = Geom:new{
-                    w = btn_size - current_border * 2,
-                    h = btn_size - current_border * 2,
-                },
-                icon_widget,
-            },
-        }
-
-        local vg = VerticalGroup:new{
-            align = "center",
-            btn_frame,
-        }
-
-        if showLabels() then
-            local lbl_w = btn_size + Screen:scaleBySize(6)
-            table.insert(vg, VerticalSpan:new{ width = Screen:scaleBySize(2) })
-            table.insert(vg, CenterContainer:new{
-                dimen = Geom:new{ w = lbl_w, h = lbl_face.size },
-                TextWidget:new{
-                    text    = label,
-                    face    = lbl_face,
-                    fgcolor = Blitbuffer.COLOR_BLACK,
-                    width   = lbl_w,
-                },
-            })
-        end
-
+        local vg, btn_frame = _QARenderer().buildCell(action_id, {
+            icon_sz      = icon_size,
+            frame_sz     = btn_size,
+            fixed_size   = true,
+            border_sz    = border_sz,
+            shape        = getShape(),
+            bg           = getBg(),
+            fgcolor      = SUIStyle.COLOR.text_primary,
+            show_label   = showLabels(),
+            lbl_sp       = Screen:scaleBySize(2),
+            lbl_h        = lbl_face.size,
+            lbl_fs       = lbl_fs,
+            lbl_face     = ok_style and SUIStyle.FACE_REGULAR or "cfont",
+            lbl_w        = btn_size + Screen:scaleBySize(6),
+            lbl_width    = btn_size + Screen:scaleBySize(6),
+        })
         return vg, btn_frame
     end
 
@@ -354,7 +278,7 @@ local function buildPanel(touch_menu)
         table.insert(btn_row, TextWidget:new{
             text    = _("No actions configured.\nGo to Bars → Quick Settings Bar."),
             face    = Font:getFace("cfont"),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            fgcolor = SUIStyle.COLOR.text_secondary,
         })
     end
 
@@ -1057,7 +981,17 @@ _showQSBarSettingsWindow = function(touch_menu)
         position       = "bottom",
         has_settings_btn = true,
     }
-    UIManager:close(touch_menu)
+    -- Use the menu's own close path (same one onTapCloseAllMenus/onSwipe use
+    -- above), not a raw UIManager:close(). touch_menu is the shared system
+    -- TouchMenu (FileManagerMenu/ReaderMenu's own menu, not something this
+    -- file owns), which self-reschedules its footer clock/battery refresh
+    -- timer for as long as it believes it's open. That timer is only
+    -- cancelled inside the menu's own onClose()/onCloseWidget(); a raw
+    -- UIManager:close() skips it, so it keeps firing against the
+    -- already-torn-down widget and can re-dirty it well after this function
+    -- returns, repainting a widget tree whose icons were already freed by
+    -- the CloseWidget cascade.
+    touch_menu:onClose()
     win:show()
 end
 

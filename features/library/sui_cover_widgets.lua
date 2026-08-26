@@ -85,7 +85,6 @@ local _BASE_DIR_FS  = SUIStyle.FS_SUBTITLE -- 20: directory name label ceiling f
 local _EDGE_THICK  = math.max(1, Screen:scaleBySize(3))
 local _EDGE_MARGIN = math.max(1, Screen:scaleBySize(1))
 local _SPINE_W     = _EDGE_THICK * 2 + _EDGE_MARGIN * 2
-local _SPINE_COLOR = Blitbuffer.gray(0.70)
 
 local _LATERAL_PAD         = Screen:scaleBySize(10)
 local _VERTICAL_PAD        = Screen:scaleBySize(4)
@@ -142,7 +141,7 @@ function CoverWidgets.buildProgressBadgeDesc(eff_size, status, percent_finished,
     local bh = math.floor(eff_size * 1.4)
     if bw < 4 or bh < 4 then return nil end
 
-    local text_color  = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local text_color  = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
     local text_widget = nil
 
     if status == "abandoned" then
@@ -183,8 +182,8 @@ function CoverWidgets.drawProgressBadge(bb, ox, oy, desc)
     local bw         = desc.bw
     local bh         = desc.bh
     local fr         = desc.border
-    local fill_color = desc.dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local text_color = desc.dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local fill_color = desc.dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local text_color = desc.dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
     local brd_color  = SUIStyle.BADGE_BORDER_CLR
 
     pentagonPaintRect(bb, ox,      oy,      bw + 2 * fr, bh + 2 * fr, brd_color)
@@ -294,8 +293,8 @@ function CoverWidgets.paintCornerRibbon(bb, cover_left, cover_right, cover_top, 
     local th = band_thick
     if tw <= 0 or th <= 0 then return end
 
-    local bg  = dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local fg  = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local bg  = dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local fg  = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
     local brd = SUIStyle.BADGE_BORDER_CLR
 
     local cache_key = string.format("%d|%d|%d|%s|%d|%d|%s|%s",
@@ -431,8 +430,8 @@ function CoverWidgets.buildRectBadgeWidget(text, bold, cell_min, dark, new_badge
     local corner   = math.max(1, math.floor(eff_size * 0.08))
     local border   = SUIStyle.BADGE_BORDER_SZ
 
-    local bg = dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local fg = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local bg = dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local fg = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
     local border_color = SUIStyle.BADGE_BORDER_CLR
 
     local tw = TextWidget:new{
@@ -476,7 +475,7 @@ function CoverWidgets.buildSpine(img_h)
     local function spineLine(h, y_off)
         local line = LineWidget:new{
             dimen      = Geom:new{ w = _EDGE_THICK, h = h },
-            background = _SPINE_COLOR,
+            background = SUIStyle.COLOR.gray,
         }
         line.overlap_offset = { 0, y_off }
         return OverlapGroup:new{ dimen = Geom:new{ w = _EDGE_THICK, h = img_h }, line }
@@ -533,8 +532,8 @@ function CoverWidgets.buildFolderNameWidget(item, available_w, dir_max_font_size
     local text      = item._fc_display_text
     local max_fs    = dir_max_font_size or _BASE_DIR_FS
     local cache_key = text .. "\0" .. available_w .. "\0" .. max_fs
-    local fg        = fgcolor or Blitbuffer.COLOR_BLACK
-    local bg        = bgcolor or Blitbuffer.COLOR_WHITE
+    local fg        = fgcolor or SUIStyle.COLOR.text_primary
+    local bg        = bgcolor or SUIStyle.COLOR.surface
 
     local cached_fs = fsCacheGet(cache_key)
     if cached_fs then
@@ -618,8 +617,8 @@ function CoverWidgets.buildLabel(item, available_w, size, border, cv_scale, disp
     local label_style = display.label_style
     local label_pos   = display.label_pos
     local dark        = display.label_color == "dark"
-    local bg_color    = dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local fg_color    = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local bg_color    = dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local fg_color    = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
 
     local dir_max_fs = math.max(8, math.floor(_BASE_DIR_FS * (display.label_scale or 1.0)))
     local directory  = CoverWidgets.buildFolderNameWidget(item, available_w, dir_max_fs, fg_color, bg_color)
@@ -678,8 +677,8 @@ function CoverWidgets.buildBadge(mandatory, cover_dimen, cv_scale, cell_dimen, o
     local badge_margin   = math.max(1, math.floor(_BADGE_MARGIN_BASE   * cv_scale))
     local badge_margin_r = math.max(1, math.floor(_BADGE_MARGIN_R_BASE * cv_scale))
     local dark           = opts.dark
-    local bg_color       = dark and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
-    local fg_color       = dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    local bg_color       = dark and SUIStyle.COLOR.text_primary or SUIStyle.COLOR.surface
+    local fg_color       = dark and SUIStyle.COLOR.surface or SUIStyle.COLOR.text_primary
     local border_color   = SUIStyle.BADGE_BORDER_CLR
 
     local badge = FrameContainer:new{
@@ -851,7 +850,7 @@ function CoverWidgets.buildQuadGrid(img_list, w, h, border)
         end
     end
 
-    local sep_color = Blitbuffer.COLOR_LIGHT_GRAY
+    local sep_color = SUIStyle.COLOR.gray_soft
     local grid = FrameContainer:new{
         padding    = 0,
         bordersize = border,

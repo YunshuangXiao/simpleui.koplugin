@@ -12,6 +12,7 @@ local Config    = require("infra/sui_config")
 local UI        = require("infra/sui_core")
 local Bottombar = require("screens/sui_bottombar")
 local SUISettings = require("infra/sui_store")
+local SUIStyle    = require("features/sui_style")
 
 -- Lazy: only needed on D-pad devices, inside gesture event handlers.
 local _FocusManager
@@ -56,6 +57,13 @@ local function _hsActionId(widget)
 end
 
 local M = {}
+
+-- Forward declarations needed because the ReaderUI fallback block inside
+-- patchUIManagerClose (below) can encounter a soft-parked Homescreen
+-- before these are defined further down this file, near
+-- _closeReaderToHomescreenSync (their primary caller).
+local _raiseParkedScreen
+local _dropParkedScreen
 
 -- ---------------------------------------------------------------------------
 -- Module-level state
@@ -1733,7 +1741,7 @@ local function _ctMakeCoverWidget(cover_bb, ImageWidget)
             dimen      = { w = screen_w, h = screen_h },
             padding    = 0,
             bordersize = 0,
-            background = Blitbuffer.COLOR_BLACK,
+            background = SUIStyle.COLOR.text_primary,
             CenterContainer:new{
                 dimen = { w = screen_w, h = screen_h },
                 image,
@@ -2596,10 +2604,16 @@ function M.patchUIManagerClose(plugin)
                                 local RUI2 = package.loaded["apps/reader/readerui"]
                                 if RUI2 and RUI2.instance then return end
                                 local HS2 = liveHS()
-                                if not (HS2 and not HS2._instance) then return end
-                                _showHSCold(active_plugin, HS2, prev_action)
+                                if not HS2 then return end
+                                if HS2._instance and HS2._instance._parked then
+                                    _raiseParkedScreen(active_plugin, HS2, prev_action)
+                                elseif not HS2._instance then
+                                    _showHSCold(active_plugin, HS2, prev_action)
+                                end
                             end)
                         else
+                            local HS2b = liveHS()
+                            if HS2b then _dropParkedScreen(HS2b) end
                             UIManager:scheduleIn(0, function()
                                 local fm_ref = liveFM()
                                 if fm_ref and fm_ref.file_chooser then
@@ -3161,27 +3175,50 @@ end
 --      next becomes visible (mirrors what onCloseDocument does).
 -- ---------------------------------------------------------------------------
 
+-- Reads the sidecar's summary.status once, for the steps below that all
+-- need it. Returns nil if the sidecar/summary can't be read.
+local function _readCurrentStatus(file)
+    local ok_DS, DocSettings = pcall(require, "docsettings")
+    if not ok_DS or not DocSettings then return nil end
+    local ok_open, ds = pcall(DocSettings.open, DocSettings, file)
+    if not ok_open or not ds then return nil end
+    local summary = ds:readSetting("summary")
+    local status  = type(summary) == "table" and summary.status or nil
+    pcall(function() ds:close() end)
+    return status
+end
+
 local function _onStatusChanged(file)
+    -- saveSummary has already flushed the new status to disk by the time
+    -- this runs (before caller_callback() in the FM paths; after flush() in
+    -- the reader paths — see patchReaderMarkBook / patchBookStatusWidget
+    -- below), so a single fresh read here is current for every step.
+    local new_status = _readCurrentStatus(file)
+
     -- 0. If the book is no longer "complete", remove it from the deleted-books
     --    store (in case it was previously deleted then re-added by the user and
     --    its status is now being changed back to reading/abandoned).
-    --    We read the sidecar — saveSummary has already flushed the new status
-    --    to disk before caller_callback() is invoked, so this is always current.
     pcall(function()
         local DB = SUISettings.DeletedBooks
         if not (DB and DB.isEnabled()) then return end
+        if new_status == "complete" then return end
         local ok_DS, DocSettings = pcall(require, "docsettings")
         if not ok_DS or not DocSettings then return end
-        local ds = DocSettings:open(file)
-        local summary = ds:readSetting("summary")
-        local new_status = type(summary) == "table" and summary.status or nil
-        if new_status ~= "complete" then
-            local md5 = ds:readSetting("partial_md5_checksum")
-            pcall(function() ds:close() end)
-            if md5 then DB.removeByMd5(md5) end
-        else
-            pcall(function() ds:close() end)
-        end
+        local ds  = DocSettings:open(file)
+        local md5 = ds:readSetting("partial_md5_checksum")
+        pcall(function() ds:close() end)
+        if md5 then DB.removeByMd5(md5) end
+    end)
+
+    -- 0b. If the book just became "complete", drop it from the To Be Read
+    --     list — TBR is meant to hold unstarted books, so a finished book
+    --     no longer belongs there. Opt-out toggle in the TBR module's menu,
+    --     on by default.
+    pcall(function()
+        if new_status ~= "complete" then return end
+        local TBR = package.loaded["modules/module_tbr"]
+        if not (TBR and TBR.isAutoRemoveFinishedEnabled and TBR.removeTBR) then return end
+        if TBR.isAutoRemoveFinishedEnabled() then TBR.removeTBR(file) end
     end)
 
     -- 1. Invalidate the sidecar cache for this file so the stale summary is
@@ -3228,6 +3265,13 @@ function M.patchStatusButtons(plugin)
     -- The single-file variant changes status directly (no ConfirmBox), but
     -- using caller_callback injection is simpler and equally correct: the
     -- status is written before caller_callback() is called inside orig_gen_row.
+    --
+    -- Order matters here: caller_callback is what closes the dialog and
+    -- triggers the caller's own refresh (e.g. the homescreen repainting the
+    -- row the book was tapped from). _onStatusChanged must run first, so
+    -- that refresh already sees the post-change state (TBR removal, cache
+    -- invalidation) instead of painting once with stale data and only
+    -- picking up the change on the next unrelated repaint.
     local orig_gen_row = fmutil.genStatusButtonsRow
     plugin._orig_fmutil_gen_status_row = orig_gen_row
 
@@ -3241,8 +3285,8 @@ function M.patchStatusButtons(plugin)
         end
 
         local wrapped_callback = function()
-            if caller_callback then caller_callback() end
             if file then _onStatusChanged(file) end
+            if caller_callback then caller_callback() end
         end
         return orig_gen_row(doc_settings_or_file, wrapped_callback)
     end
@@ -3251,18 +3295,19 @@ function M.patchStatusButtons(plugin)
     -- genMultipleStatusButtonsRow shows a ConfirmBox before actually changing
     -- the status. We cannot wrap btn.callback (it fires before confirmation).
     -- Instead, we inject _onStatusChanged into the caller_callback so it runs
-    -- after the status has been written to disk (inside ok_callback → caller_callback).
+    -- after the status has been written to disk (inside ok_callback → caller_callback),
+    -- but before caller_callback itself — same ordering reason as above.
     local orig_gen_multi = fmutil.genMultipleStatusButtonsRow
     plugin._orig_fmutil_gen_status_multi = orig_gen_multi
 
     fmutil.genMultipleStatusButtonsRow = function(files, caller_callback, button_disabled)
         local wrapped_callback = function()
-            if caller_callback then caller_callback() end
             if type(files) == "table" then
                 for f in pairs(files) do
                     _onStatusChanged(f)
                 end
             end
+            if caller_callback then caller_callback() end
         end
         return orig_gen_multi(files, wrapped_callback, button_disabled)
     end
@@ -3281,6 +3326,94 @@ function M.unpatchStatusButtons(plugin)
         plugin._orig_fmutil_gen_status_multi      = nil
     end
     fmutil._simpleui_status_buttons_patched = nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Reuse _onStatusChanged for the two status-change paths that live inside
+-- the reader itself, so cache invalidation and TBR auto-removal apply there
+-- too, not just from the file manager (see patchStatusButtons above):
+--
+--   • ReaderStatus:markBook()      — "Mark as finished"/"Mark as reading" on
+--                                     the end-of-book dialog, and the
+--                                     end_document_auto_mark setting.
+--   • BookStatusWidget:onClose()   — the full-screen "Book status" page
+--                                     (Reading/Complete/On hold), reachable
+--                                     from the reader menu and from the
+--                                     end-of-book dialog's "Book status"
+--                                     button.
+-- ---------------------------------------------------------------------------
+
+function M.patchReaderMarkBook(plugin)
+    local ok_rs, ReaderStatus = pcall(require, "apps/reader/modules/readerstatus")
+    if not ok_rs or not ReaderStatus then return end
+    if ReaderStatus._simpleui_markbook_patched then return end
+    ReaderStatus._simpleui_markbook_patched = true
+
+    local orig_mark_book = ReaderStatus.markBook
+    plugin._orig_readerstatus_markbook = orig_mark_book
+
+    ReaderStatus.markBook = function(rs_self, ...)
+        orig_mark_book(rs_self, ...)
+        -- markBook() already flushed doc_settings before returning, so the
+        -- sidecar is current by the time _onStatusChanged reads it back.
+        local file = rs_self.document and rs_self.document.file
+        if file then _onStatusChanged(file) end
+    end
+end
+
+function M.unpatchReaderMarkBook(plugin)
+    local ReaderStatus = package.loaded["apps/reader/modules/readerstatus"]
+    if not ReaderStatus or not ReaderStatus._simpleui_markbook_patched then return end
+
+    if plugin._orig_readerstatus_markbook then
+        ReaderStatus.markBook              = plugin._orig_readerstatus_markbook
+        plugin._orig_readerstatus_markbook = nil
+    end
+    ReaderStatus._simpleui_markbook_patched = nil
+end
+
+function M.patchBookStatusWidget(plugin)
+    local ok_bsw, BookStatusWidget = pcall(require, "ui/widget/bookstatuswidget")
+    if not ok_bsw or not BookStatusWidget then return end
+    if BookStatusWidget._simpleui_onclose_patched then return end
+    BookStatusWidget._simpleui_onclose_patched = true
+
+    local orig_on_close = BookStatusWidget.onClose
+    plugin._orig_bookstatuswidget_onclose = orig_on_close
+
+    BookStatusWidget.onClose = function(bsw_self, ...)
+        -- Capture before orig_on_close runs: it only flushes doc_settings
+        -- when self.updated is true, and readonly instances (e.g. the
+        -- screensaver's "bookstatus" mode) never set it.
+        local was_updated = bsw_self.updated
+        local file = bsw_self.ui and bsw_self.ui.document and bsw_self.ui.document.file
+
+        -- orig_on_close flushes doc_settings, then calls self.close_callback
+        -- (which reveals/repaints whatever is behind this widget, e.g. the
+        -- homescreen), all before returning. Wrap close_callback itself so
+        -- _onStatusChanged runs first — otherwise the repaint happens with
+        -- stale state and the change only shows up on the next unrelated
+        -- repaint.
+        if was_updated and file then
+            local orig_close_callback = bsw_self.close_callback
+            bsw_self.close_callback = function(...)
+                _onStatusChanged(file)
+                if orig_close_callback then return orig_close_callback(...) end
+            end
+        end
+        return orig_on_close(bsw_self, ...)
+    end
+end
+
+function M.unpatchBookStatusWidget(plugin)
+    local BookStatusWidget = package.loaded["ui/widget/bookstatuswidget"]
+    if not BookStatusWidget or not BookStatusWidget._simpleui_onclose_patched then return end
+
+    if plugin._orig_bookstatuswidget_onclose then
+        BookStatusWidget.onClose              = plugin._orig_bookstatuswidget_onclose
+        plugin._orig_bookstatuswidget_onclose = nil
+    end
+    BookStatusWidget._simpleui_onclose_patched = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -3319,6 +3452,10 @@ function M.patchResetSettingsButton(plugin)
     -- before the button is built, so it's available to the wrapped callback
     -- regardless of whether doc_settings_or_file is a DocSettings table or a
     -- plain path string.
+    --
+    -- _onStatusChanged runs before caller_callback for the same reason as in
+    -- patchStatusButtons above: caller_callback triggers the caller's own
+    -- refresh, which must see the already-invalidated caches.
     local orig_gen_reset = fmutil.genResetSettingsButton
     plugin._orig_fmutil_gen_reset = orig_gen_reset
 
@@ -3332,8 +3469,8 @@ function M.patchResetSettingsButton(plugin)
         end
 
         local wrapped_callback = function()
-            if caller_callback then caller_callback() end
             if file then _onStatusChanged(file) end
+            if caller_callback then caller_callback() end
         end
         return orig_gen_reset(doc_settings_or_file, wrapped_callback, button_disabled)
     end
@@ -3344,12 +3481,12 @@ function M.patchResetSettingsButton(plugin)
 
     fmutil.genMultipleResetSettingsButton = function(files, caller_callback, button_disabled)
         local wrapped_callback = function()
-            if caller_callback then caller_callback() end
             if type(files) == "table" then
                 for f in pairs(files) do
                     _onStatusChanged(f)
                 end
             end
+            if caller_callback then caller_callback() end
         end
         return orig_gen_reset_multi(files, wrapped_callback, button_disabled)
     end
@@ -3622,7 +3759,7 @@ function M._wrapButtonPaintTo(plugin, Button)
         if not SUISettings:isTrue("simpleui_debug_button_bounds") then return end
         local dimen = btn_self:getSize()
         if not dimen then return end
-        bb:paintBorder(x, y, dimen.w, dimen.h, 2, Blitbuffer.COLOR_RED)
+        bb:paintBorder(x, y, dimen.w, dimen.h, 2, SUIStyle.COLOR.debug)
     end
 end
 
@@ -3680,6 +3817,122 @@ local function _prepareReaderClose(plugin, readerui, via_gesture)
 end
 
 -- ---------------------------------------------------------------------------
+-- _raiseParkedScreen — warm-path promotion of a soft-parked screen instance.
+--
+-- Counterpart to ScreenWidget:onShowingReader's soft-park branch (see
+-- engines/sui_screen_engine.lua). When the reader opened, a parked HS was
+-- left alive at the bottom of the UIManager window stack instead of being
+-- torn down. This function:
+--   1. Confirms `instance` is actually parked (bails out otherwise, so
+--      callers can use it unconditionally).
+--   2. Finds it on the window stack and moves it to the top (O(n)).
+--   3. Re-injects a fresh navbar (new FM instance, correct tabs/bar).
+--   4. Calls `_refresh(false)` to pick up whatever changed while the
+--      reader was open (progress, book order, stats) — no full rebuild.
+--   5. Scopes the repaint to the widget's own dimen.
+--
+-- Returns true  → warm-path taken, caller must NOT build/show a fresh instance.
+-- Returns false → nothing was parked, or it was evicted unexpectedly; caller
+--                 falls back to its own cold-build path.
+-- ---------------------------------------------------------------------------
+_raiseParkedScreen = function(plugin, screen_module, prev_action)
+    local inst = screen_module and screen_module._instance
+    if not (inst and inst._parked) then return false end
+
+    local stack = UIManager._window_stack
+    if not stack then inst._parked = nil; return false end
+    local found = false
+    for i = 1, #stack do
+        if stack[i].widget == inst then
+            if i ~= #stack then
+                local entry = table.remove(stack, i)
+                table.insert(stack, entry)
+            end
+            found = true
+            break
+        end
+    end
+    if not found then
+        -- Evicted from the stack unexpectedly (nothing else is supposed to
+        -- close a parked instance) — treat it as gone and let the caller
+        -- fall back to a cold build.
+        inst._parked = nil
+        if screen_module._instance == inst then screen_module._instance = nil end
+        return false
+    end
+
+    -- Orientation may have changed while parked under the reader
+    -- (onSetRotationMode ignores SetRotationMode while ReaderUI is open).
+    -- The parked tree then carries the wrong chrome: bottom bar offset,
+    -- topbar width, pagination footer, touch-zone ratios, self.dimen,
+    -- BlockNavbar _in_bar height, wrapper pools, etc. Patching each of
+    -- those is fragile — fall back to a cold reopen (warm-seeded via
+    -- onCloseWidget's intentional-close path) so init builds everything
+    -- for the current orientation. Soft-park still wins on the common
+    -- same-orientation reader round-trip.
+    local cur_w = Screen:getWidth()
+    if inst._layout_sw ~= nil and inst._layout_sw ~= cur_w then
+        logger.dbg("simpleui[rotation]: raiseParked layout stale — cold reopen",
+            "layout_sw=", inst._layout_sw, "cur_w=", cur_w)
+        inst._parked = nil
+        UI.invalidateDimCache()
+        local ok_wp, SUIWallpaper = pcall(require, "features/sui_wallpaper")
+        if ok_wp and SUIWallpaper and SUIWallpaper.freeCache then
+            SUIWallpaper.freeCache()
+        end
+        -- Seed page/books for the cold open; drop orientation-bound cfg.
+        inst._cfg_cache = nil
+        inst._navbar_closing_intentionally = true
+        UIManager:close(inst)
+        inst._navbar_closing_intentionally = nil
+        return false
+    end
+
+    inst._parked = nil
+
+    -- Same orientation: re-inject navbar and refresh data without a full rebuild.
+    local tabs = Config.loadTabConfig()
+    Bottombar.setActiveAndRefreshFM(plugin, "homescreen", tabs)
+    _ensureGoalCallback(plugin)
+    local new_bar = Bottombar.buildBarWidget("homescreen", tabs)
+    Bottombar.replaceBar(inst, new_bar, tabs)
+    inst._navbar_injected    = true
+    inst._navbar_prev_action = prev_action
+
+    inst._on_qa_tap   = _makeQaTap(plugin)
+    inst._on_goal_tap = plugin._goalTapCallback
+
+    pcall(function() inst:_refresh(false) end)
+
+    -- Scope the dirty region to the widget's own dimen instead of the full
+    -- screen. On colour panels, a full-screen "ui" dirty can be promoted to
+    -- a full flash by the EPDC driver; the dimen-scoped form stays as a "ui"
+    -- waveform and merges cleanly with the single repaint queued by the caller.
+    UIManager:setDirty(inst, function()
+        return "ui", inst.dimen
+    end)
+    return true
+end
+
+-- Closes a soft-parked screen instance for real instead of leaving it
+-- dangling alive-but-hidden. Used by any reader-close path that will NOT
+-- show the Homescreen this time (e.g. "Return to Book Folder", or landing
+-- in the Library) — without this, a parked instance from the open side
+-- would sit hidden with increasingly stale data until the user happened to
+-- reach the Homescreen some other way, defeating the point of parking it
+-- in the first place.
+_dropParkedScreen = function(screen_module)
+    local inst = screen_module and screen_module._instance
+    if not (inst and inst._parked) then return end
+    inst._parked = nil
+    -- Same warm-seed semantics as a normal onShowingReader close: preserve
+    -- _cached_books_state/_current_page/_cfg_cache for next time, discard
+    -- everything else.
+    inst._navbar_closing_intentionally = true
+    UIManager:close(inst)
+end
+
+-- ---------------------------------------------------------------------------
 -- _closeReaderToHomescreenSync
 --
 -- Synchronous inner body: onClose(false) + showFileManager + optional HS.
@@ -3704,26 +3957,29 @@ local function _closeReaderToHomescreenSync(plugin, readerui, file,
     -- (last_dir derived from file path) — mirrors native behaviour.
     readerui:showFileManager(file)
 
-    -- When "Return to Book Folder" is on: close the reader and land in the FM
-    -- at the book's folder with no HS — identical to native KOReader.
-    if return_to_folder then
-        plugin.active_action = "home"
-        return
-    end
-
-    -- Default path: show the Homescreen on top of the FM. The HS is always
-    -- closed by SimpleUIPlugin:onCloseWidget by the time we get here (it no
-    -- longer stays alive underneath ReaderUI), so this is always a fresh
-    -- HS.show() seeded from ScreenEngine._cached_books_state — never a
-    -- stack-raise of a still-alive instance.
     local HS = liveHS() or (function()
         local ok, m = pcall(require, "screens/sui_homescreen"); return ok and m
     end)()
+
+    -- When "Return to Book Folder" is on: close the reader and land in the FM
+    -- at the book's folder with no HS — identical to native KOReader. A
+    -- parked HS instance from the open side won't be shown this time —
+    -- close it for real rather than leaving it alive-hidden indefinitely.
+    if return_to_folder then
+        plugin.active_action = "home"
+        if HS then _dropParkedScreen(HS) end
+        return
+    end
+
+    -- Default path: raise a parked HS instance if soft-park left one alive
+    -- underneath, else build fresh (warm-seeded from
+    -- ScreenEngine._cached_books_state, same as before soft-park existed).
     if not HS then return end
 
     local fm_ref = liveFM()
     _closeOrphanedPopups(fm_ref, HS._instance)
 
+    if _raiseParkedScreen(plugin, HS, prev_action) then return end
     if HS._instance then return end
     _showHSCold(plugin, HS, prev_action)
 end
@@ -3759,7 +4015,8 @@ function M.closeReaderToHomescreen(plugin, via_gesture)
     --     onClose(false)          → suppresses internal "full" refresh;
     --                               onCloseDocument fires + flushes "Closing…" notice
     --     showFileManager         → FM ready synchronously
-    --     _showHSCold             → HS rebuilt (warm-seeded) in the same tick
+    --     _raiseParkedScreen/_showHSCold → HS raised (warm) or rebuilt (warm-seeded)
+    --                               in the same tick
     --   [event loop drains → single "ui" repaint of HS or FM]
     -- -----------------------------------------------------------------------
     UIManager:nextTick(function()
@@ -4000,6 +4257,12 @@ function M.closeReaderToLibrary(plugin)
     -- so the flag has already been consumed. No need to clear it.
     readerui:showFileManager(file)
 
+    -- A parked HS instance from the open side won't be shown this time —
+    -- close it for real (see _dropParkedScreen) rather than leaving it
+    -- alive-hidden indefinitely with increasingly stale data.
+    local HS = liveHS()
+    if HS then _dropParkedScreen(HS) end
+
     -- After the FM appears, navigate to home_dir and rebuild the navbar.
     UIManager:scheduleIn(0, function()
         local fm_ref = liveFM()
@@ -4095,7 +4358,7 @@ local function _clearWhiteBackgrounds(w, depth)
     -- w.background can be a cdata (e.g. BlitBuffer color) that triggers
     -- blitbuffer.lua's __eq metamethod, which crashes if either operand
     -- is an uninitialised/null cdata rather than a proper Lua nil.
-    local ok, is_white = pcall(function() return w.background == Blitbuffer.COLOR_WHITE end)
+    local ok, is_white = pcall(function() return w.background == SUIStyle.COLOR.surface end)
     if ok and is_white then
         w.background = nil
     end
@@ -4383,7 +4646,7 @@ function M.patchWallpaperFM(plugin)
         plugin._orig_wp_uc_paintTo = orig_uc_pt
 
         UnderlineContainer.paintTo = function(uc_self, bb, x, y)
-            if _wallpaperEnabledFM() and uc_self.color == Blitbuffer.COLOR_WHITE then
+            if _wallpaperEnabledFM() and uc_self.color == SUIStyle.COLOR.surface then
                 -- Paint only the child, skip the white underline.
                 local container_size = uc_self:getSize()
                 if not uc_self.dimen then
@@ -4427,7 +4690,7 @@ function M.patchWallpaperFM(plugin)
 
         TextBoxWidget.paintTo = function(tbw_self, bb, x, y)
             if not (_wallpaperEnabledFM()
-                    and tbw_self.bgcolor == Blitbuffer.COLOR_WHITE) then
+                    and tbw_self.bgcolor == SUIStyle.COLOR.surface) then
                 return orig_tbw_pt(tbw_self, bb, x, y)
             end
 
@@ -4442,7 +4705,7 @@ function M.patchWallpaperFM(plugin)
                 tbw_self._sui_tmp_bb = Blitbuffer.new(w, h, Blitbuffer.TYPE_BB8)
             end
 
-            local fgcolor = tbw_self.fgcolor or Blitbuffer.COLOR_BLACK
+            local fgcolor = tbw_self.fgcolor or SUIStyle.COLOR.text_primary
             UI.paintWithAlphaMask(tbw_self, bb, x, y, w, h, fgcolor, orig_tbw_pt, tbw_self._sui_tmp_bb)
         end
 
@@ -4473,7 +4736,7 @@ function M.patchWallpaperFM(plugin)
 
         ProgressWidget.paintTo = function(pw_self, bb, x, y)
             if _wallpaperEnabledFM()
-                    and pw_self.bgcolor == Blitbuffer.COLOR_WHITE then
+                    and pw_self.bgcolor == SUIStyle.COLOR.surface then
                 local saved = pw_self.bgcolor
                 pw_self.bgcolor = nil
                 orig_pw_pt(pw_self, bb, x, y)
@@ -4700,6 +4963,8 @@ function M.installAll(plugin)
     M.patchMenuForNavpager(plugin)
     M.patchBookInfoNavigation(plugin)
     M.patchStatusButtons(plugin)
+    M.patchReaderMarkBook(plugin)
+    M.patchBookStatusWidget(plugin)
     M.patchResetSettingsButton(plugin)
     M.patchFileDialogBookTitle(plugin)
     M.patchFontGetFace(plugin)
@@ -4916,6 +5181,8 @@ function M.teardownAll(plugin)
         fmutil._simpleui_bookinfo_nav_patched = nil
     end
     M.unpatchStatusButtons(plugin)
+    M.unpatchReaderMarkBook(plugin)
+    M.unpatchBookStatusWidget(plugin)
     M.unpatchResetSettingsButton(plugin)
     M.unpatchFileDialogBookTitle(plugin)
     M.unpatchFontGetFace(plugin)

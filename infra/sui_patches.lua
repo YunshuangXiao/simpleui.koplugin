@@ -1172,6 +1172,145 @@ function M.patchBookList(plugin)
     end
 end
 
+
+-- ---------------------------------------------------------------------------
+-- BookList sort-by-Title/Authors/Series/Keywords → pinyin
+--
+-- BookList.collates.{title,authors,series,keywords} (ui/widget/booklist.lua,
+-- core KOReader) sort using ffiUtil.strcoll — a raw C-locale string compare
+-- that, on devices with no Chinese locale data installed (the common case
+-- on e-readers), degrades to plain UTF-8 byte order. This monkey-patches
+-- those four collate entries in place (they're shared, static tables —
+-- there's exactly one BookList.collates for the whole session, so patching
+-- the table directly is enough; no per-instance wrapping needed) to sort
+-- by pinyin instead, using infra/sui_pinyin.lua.
+--
+-- Each entry's item_func already runs once per item before sorting (that's
+-- what populates item.doc_props) — this patch piggybacks on that same call
+-- to also precompute and cache the pinyin key(s) needed for THIS entry's
+-- comparator, so init_sort_func's comparator only ever does a cheap string
+-- `<` between two already-computed keys, never a fresh Pinyin.sortKey call
+-- per comparison (which would redo the same UTF-8 walk O(n log n) times).
+--
+-- "\u{FFFF}" is the sentinel these collates use for "no value — sort
+-- last" (see the item_func's that set e.g. doc_props.authors = doc_props.
+-- authors or "\u{FFFF}"). Pinyin.sortKey leaves any character it has no
+-- mapping for untouched, so the raw \u{FFFF} bytes pass through unchanged
+-- and still sort after every Latin/pinyin-letter key — the "sort last"
+-- behaviour is preserved with no special-casing needed here.
+-- ---------------------------------------------------------------------------
+function M.patchBookListCollatesPinyin(plugin)
+    local ok_bl, BookList = pcall(require, "ui/widget/booklist")
+    if not ok_bl or not BookList or not BookList.collates then return end
+    if BookList._simpleui_pinyin_collates_patched then return end
+    BookList._simpleui_pinyin_collates_patched = true
+
+    local ok_py, Pinyin = pcall(require, "infra/sui_pinyin")
+    if not ok_py or not Pinyin then return end
+
+    local collates = BookList.collates
+    plugin._orig_collate_strcoll  = collates.strcoll
+    plugin._orig_collate_title    = collates.title
+    plugin._orig_collate_authors  = collates.authors
+    plugin._orig_collate_series   = collates.series
+    plugin._orig_collate_keywords = collates.keywords
+
+    -- strcoll
+    collates.strcoll        = {
+        text                = collates.strcoll.text,
+        menu_order          = collates.strcoll.menu_order,
+        can_collate_mixed   = collates.strcoll.can_collate_mixed,
+        init_sort_func = function()
+            return function(a, b)
+                ac = Pinyin.sortKey(a.text or "")
+                bc = Pinyin.sortKey(b.text or "")
+                return ac < bc end
+        end,
+    }  
+
+    -- title
+    local orig_title_item_func = collates.title.item_func
+    collates.title = {
+        text        = collates.title.text,
+        menu_order  = collates.title.menu_order,
+        item_func   = function(item, ui)
+            orig_title_item_func(item, ui)
+            item._sui_pyt = Pinyin.sortKey(item.doc_props.display_title or "")
+        end,
+        init_sort_func = function()
+            return function(a, b) return a._sui_pyt < b._sui_pyt end
+        end,
+    }
+
+    -- authors (tie-break: title)
+    local orig_authors_item_func = collates.authors.item_func
+    collates.authors = {
+        text        = collates.authors.text,
+        menu_order  = collates.authors.menu_order,
+        item_func   = function(item, ui)
+            orig_authors_item_func(item, ui)
+            item._sui_pya = Pinyin.sortKey(item.doc_props.authors)
+            item._sui_pyt = Pinyin.sortKey(item.doc_props.display_title or "")
+        end,
+        init_sort_func = function()
+            return function(a, b)
+                if a._sui_pya ~= b._sui_pya then return a._sui_pya < b._sui_pya end
+                return a._sui_pyt < b._sui_pyt
+            end
+        end,
+    }
+
+    -- series (tie-break: series_index numeric, then title)
+    local orig_series_item_func = collates.series.item_func
+    collates.series = {
+        text        = collates.series.text,
+        menu_order  = collates.series.menu_order,
+        item_func   = function(item, ui)
+            orig_series_item_func(item, ui)
+            item._sui_pys = Pinyin.sortKey(item.doc_props.series)
+            item._sui_pyt = Pinyin.sortKey(item.doc_props.display_title or "")
+        end,
+        init_sort_func = function()
+            return function(a, b)
+                if a._sui_pys ~= b._sui_pys then return a._sui_pys < b._sui_pys end
+                if a.doc_props.series_index and b.doc_props.series_index then
+                    return a.doc_props.series_index < b.doc_props.series_index
+                end
+                return a._sui_pyt < b._sui_pyt
+            end
+        end,
+    }
+
+    -- keywords (tie-break: title)
+    local orig_keywords_item_func = collates.keywords.item_func
+    collates.keywords = {
+        text        = collates.keywords.text,
+        menu_order  = collates.keywords.menu_order,
+        item_func   = function(item, ui)
+            orig_keywords_item_func(item, ui)
+            item._sui_pyk = Pinyin.sortKey(item.doc_props.keywords)
+            item._sui_pyt = Pinyin.sortKey(item.doc_props.display_title or "")
+        end,
+        init_sort_func = function()
+            return function(a, b)
+                if a._sui_pyk ~= b._sui_pyk then return a._sui_pyk < b._sui_pyk end
+                return a._sui_pyt < b._sui_pyt
+            end
+        end,
+    }
+end
+
+function M.unpatchBookListCollatesPinyin(plugin)
+    local BookList = package.loaded["ui/widget/booklist"]
+    if not BookList or not BookList._simpleui_pinyin_collates_patched then return end
+    if plugin._orig_collate_title    then BookList.collates.title    = plugin._orig_collate_title;    plugin._orig_collate_title    = nil end
+    if plugin._orig_collate_authors  then BookList.collates.authors  = plugin._orig_collate_authors;  plugin._orig_collate_authors  = nil end
+    if plugin._orig_collate_series   then BookList.collates.series   = plugin._orig_collate_series;   plugin._orig_collate_series   = nil end
+    if plugin._orig_collate_keywords then BookList.collates.keywords = plugin._orig_collate_keywords; plugin._orig_collate_keywords = nil end
+    BookList._simpleui_pinyin_collates_patched = nil
+end
+
+
 -- Patches the collections list menu (coll_list) height, and keeps the
 -- SimpleUI collections pool in sync when KOReader renames or deletes a collection.
 function M.patchCollections(plugin)
@@ -4953,6 +5092,7 @@ function M.installAll(plugin)
     M.patchFileManagerClass(plugin)
     M.patchStartWithMenu()
     M.patchBookList(plugin)
+    M.patchBookListCollatesPinyin(plugin)
     M.patchHistoryMenuHold()
     M.patchCollections(plugin)
     M.patchFullscreenWidgets(plugin)
@@ -5180,6 +5320,7 @@ function M.teardownAll(plugin)
         end
         fmutil._simpleui_bookinfo_nav_patched = nil
     end
+    M.unpatchBookListCollatesPinyin(plugin)
     M.unpatchStatusButtons(plugin)
     M.unpatchReaderMarkBook(plugin)
     M.unpatchBookStatusWidget(plugin)

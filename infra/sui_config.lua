@@ -2,6 +2,7 @@
 -- sui_config.lua — Simple UI
 -- Central configuration, state caching, and core helpers.
 
+local Pinyin = require("infra/sui_pinyin")
 local G_reader_settings = G_reader_settings
 local math_max          = math.max
 local math_min          = math.min
@@ -1810,7 +1811,9 @@ function M.getNonFavoritesCollections()
     end
     addColls(rc.coll)
     addColls(rc.coll_folders)
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    local keys = {}
+    for _, n in ipairs(names) do keys[n] = Pinyin.sortKey(n) end
+    table.sort(names, function(a, b) return keys[a] < keys[b] end)
     return names
 end
 function M.isFavoritesWidget(w)

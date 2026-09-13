@@ -22,6 +22,8 @@
 --      own getFileList() output on every call, driven by a persisted
 --      "flat_library_sort_mode" setting (see sortRaw below).
 
+local Pinyin = require("infra/sui_pinyin")
+
 local lfs    = require("libs/libkoreader-lfs")
 local _ = require("infra/sui_i18n").translate
 
@@ -177,12 +179,15 @@ local function sortRaw(raw, mode, pfx)
             if mode == "size_desc" then return sizes[a] > sizes[b] else return sizes[a] < sizes[b] end
         end)
     elseif mode == "author_asc" then
-        table.sort(fps, function(a, b) return cachedAuthor(a):lower() < cachedAuthor(b):lower() end)
+        local keys = {}
+        for _, r in ipairs(raw) do keys[r.fp] = Pinyin.sortKey(cachedAuthor(r.fp)) end
+        table.sort(fps, function(a, b) return keys[a] < keys[b] end)
     else -- "title_asc" / "title_desc" / unrecognized -> default
         local desc = (mode == "title_desc")
+        local keys = {}
+        for _, r in ipairs(raw) do keys[r.fp] = Pinyin.sortKey(cachedTitle(r.fp)) end
         table.sort(fps, function(a, b)
-            local ta, tb = cachedTitle(a):lower(), cachedTitle(b):lower()
-            if desc then return ta > tb else return ta < tb end
+            if desc then return keys[a] > keys[b] else return keys[a] < keys[b] end
         end)
     end
     return fps

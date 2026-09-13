@@ -1,6 +1,7 @@
 -- module_coverdeck.lua
 -- Displays recent or TBR books as a cover-flow carousel.
 
+local Pinyin = require("infra/sui_pinyin")
 local Blitbuffer  = require("ffi/blitbuffer")
 local BD             = require("ui/bidi")
 local Device         = require("device")
@@ -1252,7 +1253,9 @@ function M.getMenuItems(ctx_menu)
             for name in pairs(coll_set) do
                 coll_names[#coll_names + 1] = name
             end
-            table.sort(coll_names, function(a, b) return a:lower() < b:lower() end)
+            local keys = {}
+            for _, n in ipairs(coll_names) do keys[n] = Pinyin.sortKey(n) end
+            table.sort(coll_names, function(a, b) return keys[a] < keys[b] end)
 
             for _, name in ipairs(coll_names) do
                 local c_name = name

@@ -32,6 +32,7 @@
 --   show_text, show_overlay, badge_progress, badge_new (→ progress_style/
 --   badge_new_mode — see _migrateProgressStyle/getBadgeNewMode).
 
+local Pinyin = require("infra/sui_pinyin")
 local Blitbuffer      = require("ffi/blitbuffer")
 local BD              = require("ui/bidi")
 local T               = require("ffi/util").template
@@ -1430,7 +1431,9 @@ function GridRenderer.listAllCollectionNames(exclude_names)
     end
     local others = {}
     for name in pairs(coll_set) do others[#others + 1] = name end
-    table.sort(others, function(a, b) return a:lower() < b:lower() end)
+    local keys = {}
+    for _, n in ipairs(others) do keys[n] = Pinyin.sortKey(n) end
+    table.sort(others, function(a, b) return keys[a] < keys[b] end)
     for _, n in ipairs(others) do all[#all + 1] = n end
     return all
 end
@@ -1489,7 +1492,7 @@ function GridRenderer.sortCollection(coll_name, mode)
     local SH = getSH()
     if mode == "title_asc" or mode == "title_desc" then
         local titles = {}
-        for _, fp in ipairs(fps) do titles[fp] = GridRenderer.getBookTitle(fp):lower() end
+        for _, fp in ipairs(fps) do titles[fp] = Pinyin.sortKey(GridRenderer.getBookTitle(fp)) end
         table.sort(fps, function(a, b)
             if mode == "title_asc" then return titles[a] < titles[b] else return titles[a] > titles[b] end
         end)
@@ -1497,7 +1500,7 @@ function GridRenderer.sortCollection(coll_name, mode)
         local authors = {}
         for _, fp in ipairs(fps) do
             local bd = SH.getBookData(fp)
-            authors[fp] = (bd.authors or ""):lower()
+            authors[fp] = Pinyin.sortKey(bd.authors or "")
         end
         table.sort(fps, function(a, b) return authors[a] < authors[b] end)
     elseif mode == "percent_asc" or mode == "percent_desc" then

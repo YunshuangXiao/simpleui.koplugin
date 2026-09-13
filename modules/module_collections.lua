@@ -42,6 +42,7 @@
 -- visually uniform: every cell either has the spine or none does,
 -- regardless of which style it individually resolves to.
 
+local Pinyin = require("infra/sui_pinyin")
 local Blitbuffer      = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device          = require("device")
@@ -544,10 +545,11 @@ local function _orderCollections(names)
     if mode == "alpha_asc" or mode == "alpha_desc" then
         local sorted = {}
         for _, n in ipairs(names) do sorted[#sorted + 1] = n end
+        local keys = {}
+        for _, n in ipairs(sorted) do keys[n] = Pinyin.sortKey(displayNameFor(n)) end
         table.sort(sorted, function(a, b)
-            local da, db = displayNameFor(a):lower(), displayNameFor(b):lower()
-            if mode == "alpha_desc" then return da > db end
-            return da < db
+            if mode == "alpha_desc" then return keys[a] > keys[b] end
+            return keys[a] < keys[b]
         end)
         return sorted
     end

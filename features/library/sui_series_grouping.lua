@@ -117,6 +117,19 @@ local function sgProcessItemTable(item_table, file_chooser)
     if item_table._sg_is_series_view          then return end
     if file_chooser.show_current_dir_for_hold then return end
 
+    -- Skip SimpleUI's virtual author/series/tags browse paths entirely —
+    -- those entries are synthetic (fake attr, no real doc_props), and this
+    -- function's own re-sort at the end would silently corrupt the
+    -- already-correct order sui_library_browse.lua computed, whenever the
+    -- active collate's sort function can actually run against them (e.g.
+    -- date/size, which read item.attr fields we DO fake) instead of
+    -- erroring out silently under pcall (e.g. authors/title/series, which
+    -- read item.doc_props.* we never set on these entries).
+    local ok_vp, VirtualPath = pcall(require, "features/library/sui_virtual_path")
+    if ok_vp and VirtualPath and VirtualPath.isVirtual(file_chooser.path) then
+        return
+    end
+
     -- Evict stale _sg_items_cache entries for the current directory.
     local current_path = file_chooser.path
     if current_path and current_path ~= _sg_last_evicted_path then

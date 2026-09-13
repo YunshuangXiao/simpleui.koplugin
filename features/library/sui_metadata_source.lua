@@ -35,6 +35,7 @@
 --   recursive        -- default true; false = direct children of base_dir only
 --   active_dimension  -- passed to sortFiles when getMatchingFiles is asked to sort
 
+local Pinyin = require("infra/sui_pinyin")
 local logger      = require("logger")
 local ffiUtil     = require("ffi/util")
 local FilterState = require("features/library/sui_filter_state")
@@ -340,12 +341,17 @@ local function computeFacetValues(files, definition)
         out[#out + 1] = { value, count, _first = first[value] }
     end
 
+    local keys = {}
+    for _, entry in ipairs(out) do
+        local v = entry[1]
+        if v and v ~= false and v ~= "" then keys[entry] = Pinyin.sortKey(v) end
+    end
     table.sort(out, function(a, b)
         local av, bv = a[1], b[1]
         if av == bv then return false end
         if not av or av == false or av == "" then return false end
         if not bv or bv == false or bv == "" then return true end
-        return ffiUtil.strcoll(av, bv)
+        return keys[a] < keys[b]
     end)
 
     return out
@@ -378,7 +384,7 @@ local function strcollSafe(a, b)
     if a == b then return false end
     if not a or a == false then return false end
     if not b or b == false then return true end
-    return ffiUtil.strcoll(a, b)
+    return Pinyin.sortKey(a) < Pinyin.sortKey(b)
 end
 
 -- Sort by: series name (author dimension only), series_index, title, filename.
